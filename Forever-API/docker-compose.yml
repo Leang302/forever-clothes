@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: forever-postgres
+    environment:
+      POSTGRES_DB: forever
+      POSTGRES_USER: forever
+      POSTGRES_PASSWORD: forever_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forever -d forever"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    # MinIO CE stopped publishing official images; this maintained fork is
+    # built from the open-source MinIO code and supports the same S3 API.
+    image: pgsty/minio:latest
+    container_name: forever-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: forever_minio
+      MINIO_ROOT_PASSWORD: forever_minio_password
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: forever-mailpit
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  minio-data:

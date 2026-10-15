@@ -1,0 +1,12 @@
+# Runtime files from run.sh
+.run/
+
+# Secrets (the real values live only on each developer's machine)
+.env
+.env.local
+*.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
