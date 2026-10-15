@@ -4,8 +4,8 @@ part 'product_query.freezed.dart';
 
 enum ProductSort {
   relevant('relevant', 'Relevant'),
-  priceAsc('price_asc', 'Price: low to high'),
-  priceDesc('price_desc', 'Price: high to low'),
+  priceAsc('price_asc', 'Low to high'),
+  priceDesc('price_desc', 'High to low'),
   newest('newest', 'Newest');
 
   const ProductSort(this.apiValue, this.label);
@@ -25,4 +25,8 @@ abstract class ProductQuery with _$ProductQuery {
   }) = _ProductQuery;
 
   int get activeFilterCount => categories.length + subCategories.length;
+
+  /// Search is shown as a removable filter on the collection screen too.
+  int get appliedFilterCount =>
+      activeFilterCount + (search.trim().isEmpty ? 0 : 1);
 }

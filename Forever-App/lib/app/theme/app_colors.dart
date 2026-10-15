@@ -5,6 +5,7 @@ abstract final class AppColors {
   static const surface = Colors.white;
   static const ink = Color(0xFF111111);
   static const text = Color(0xFF2B2B2B);
+  static const secondaryText = Color(0xFF6F6E69);
   static const muted = Color(0xFF8A8A85);
   static const line = Color(0xFFE8E6E0);
   static const fill = Color(0xFFEFEDE8);

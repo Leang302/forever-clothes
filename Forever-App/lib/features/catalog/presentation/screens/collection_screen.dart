@@ -5,9 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 import '../../../../app/theme/app_colors.dart';
-import '../../../../core/widgets/choice_chip_pill.dart';
-import '../../../../core/widgets/circle_icon_button.dart';
+import '../../../../core/widgets/app_snackbar.dart';
 import '../../../../core/widgets/state_views.dart';
+import '../../domain/entities/paged_result.dart';
 import '../../domain/entities/product.dart';
 import '../../domain/entities/product_query.dart';
 import '../providers/catalog_providers.dart';
@@ -28,6 +28,7 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
   final _searchFocus = FocusNode();
   final _scroll = ScrollController();
   Timer? _debounce;
+  bool _openingFilters = false;
 
   @override
   void initState() {
@@ -64,21 +65,45 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
     );
   }
 
+  void _clearSearch() {
+    _debounce?.cancel();
+    _search.clear();
+    setState(() {});
+    ref.read(productQueryControllerProvider.notifier).setSearch('');
+  }
+
+  void _clearAllFilters() {
+    _debounce?.cancel();
+    _search.clear();
+    setState(() {});
+    ref.read(productQueryControllerProvider.notifier).clearSearchAndFilters();
+  }
+
   Future<void> _openFilters() async {
-    final options = await ref.read(catalogFiltersProvider.future);
-    if (!mounted) return;
-    final result = await showFilterSheet(
-      context,
-      options: options,
-      current: ref.read(productQueryControllerProvider),
-    );
-    if (result != null) {
-      ref
-          .read(productQueryControllerProvider.notifier)
-          .setFilters(
-            categories: result.categories,
-            subCategories: result.subCategories,
-          );
+    if (_openingFilters) return;
+    setState(() => _openingFilters = true);
+    try {
+      final options = await ref.read(catalogFiltersProvider.future);
+      if (!mounted) return;
+      final result = await showFilterSheet(
+        context,
+        options: options,
+        current: ref.read(productQueryControllerProvider),
+      );
+      if (mounted && result != null) {
+        ref
+            .read(productQueryControllerProvider.notifier)
+            .setFilters(
+              categories: result.categories,
+              subCategories: result.subCategories,
+            );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ref.invalidate(catalogFiltersProvider);
+      AppSnackbar.error(context, error);
+    } finally {
+      if (mounted) setState(() => _openingFilters = false);
     }
   }
 
@@ -86,7 +111,8 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
   Widget build(BuildContext context) {
     final query = ref.watch(productQueryControllerProvider);
     final results = ref.watch(productListProvider);
-    final filters = ref.watch(catalogFiltersProvider).value;
+    final filterOptions = ref.watch(catalogFiltersProvider);
+    final updating = results.isLoading && results.hasValue;
     final bottom = MediaQuery.paddingOf(context).bottom;
 
     return SafeArea(
@@ -114,11 +140,10 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
                             ).textTheme.headlineMedium?.copyWith(fontSize: 30),
                           ),
                         ),
-                        CircleIconButton(
-                          icon: Icons.tune_rounded,
-                          tooltip: 'Filters',
-                          badgeCount: query.activeFilterCount,
-                          onTap: _openFilters,
+                        _FilterButton(
+                          count: query.activeFilterCount,
+                          loading: _openingFilters || filterOptions.isLoading,
+                          onPressed: _openFilters,
                         ),
                       ],
                     ),
@@ -138,10 +163,8 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
                             ? null
                             : IconButton(
                                 icon: const Icon(Icons.close_rounded, size: 20),
-                                onPressed: () {
-                                  _search.clear();
-                                  _onSearchChanged('');
-                                },
+                                tooltip: 'Clear search',
+                                onPressed: _clearSearch,
                               ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(30),
@@ -158,61 +181,34 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    SizedBox(
-                      height: 44,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        clipBehavior: Clip.none,
-                        children: [
-                          PillChip(
-                            label: 'All',
-                            selected: query.categories.isEmpty,
-                            onTap: () => ref
-                                .read(productQueryControllerProvider.notifier)
-                                .selectCategory(null),
-                          ),
-                          for (final c
-                              in filters?.categories ??
-                                  const ['Men', 'Women', 'Kids']) ...[
-                            const SizedBox(width: 10),
-                            PillChip(
-                              label: c,
-                              selected:
-                                  query.categories.length == 1 &&
-                                  query.categories.first == c,
-                              onTap: () => ref
-                                  .read(productQueryControllerProvider.notifier)
-                                  .selectCategory(c),
-                            ),
-                          ],
-                        ],
+                    _ResultsToolbar(
+                      total: results.value?.total,
+                      updating: updating,
+                      sort: query.sort,
+                      onSortChanged: (sort) => ref
+                          .read(productQueryControllerProvider.notifier)
+                          .setSort(sort),
+                    ),
+                    if (query.appliedFilterCount > 0) ...[
+                      const SizedBox(height: 12),
+                      _AppliedFilters(
+                        query: query,
+                        onRemoveSearch: _clearSearch,
+                        onRemoveCategory: (category) => ref
+                            .read(productQueryControllerProvider.notifier)
+                            .removeCategory(category),
+                        onRemoveSubCategory: (subCategory) => ref
+                            .read(productQueryControllerProvider.notifier)
+                            .removeSubCategory(subCategory),
+                        onClearAll: _clearAllFilters,
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            results.value == null
-                                ? ' '
-                                : '${results.value!.total} products',
-                            style: const TextStyle(color: AppColors.muted),
-                          ),
-                        ),
-                        _SortMenu(
-                          value: query.sort,
-                          onChanged: (s) => ref
-                              .read(productQueryControllerProvider.notifier)
-                              .setSort(s),
-                        ),
-                      ],
-                    ),
+                    ],
                     const SizedBox(height: 12),
                   ],
                 ),
               ),
             ),
-            ..._resultSlivers(results),
+            ..._resultSlivers(results, query),
             SliverToBoxAdapter(child: SizedBox(height: bottom + 24)),
           ],
         ),
@@ -220,7 +216,10 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
     );
   }
 
-  List<Widget> _resultSlivers(AsyncValue<dynamic> results) {
+  List<Widget> _resultSlivers(
+    AsyncValue<PagedResult<Product>> results,
+    ProductQuery query,
+  ) {
     final padding = const EdgeInsets.symmetric(horizontal: 20);
     if (results.hasError && !results.hasValue) {
       return [
@@ -249,15 +248,17 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
       ];
     }
     final page = results.value!;
-    final items = page.items as List<Product>;
+    final items = page.items;
     if (items.isEmpty) {
-      return const [
+      return [
         SliverFillRemaining(
           hasScrollBody: false,
           child: EmptyState(
             icon: Icons.search_off_rounded,
             title: 'No products found',
             message: 'Try a different search or clear the filters.',
+            actionLabel: query.appliedFilterCount == 0 ? null : 'Clear filters',
+            onAction: query.appliedFilterCount == 0 ? null : _clearAllFilters,
           ),
         ),
       ];
@@ -291,6 +292,239 @@ class _CollectionScreenState extends ConsumerState<CollectionScreen> {
   }
 }
 
+class _ResultsToolbar extends StatelessWidget {
+  const _ResultsToolbar({
+    required this.total,
+    required this.updating,
+    required this.sort,
+    required this.onSortChanged,
+  });
+
+  final int? total;
+  final bool updating;
+  final ProductSort sort;
+  final ValueChanged<ProductSort> onSortChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = Semantics(
+      liveRegion: true,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            total == null
+                ? ' '
+                : '$total ${total == 1 ? 'product' : 'products'}',
+            style: const TextStyle(color: AppColors.secondaryText),
+          ),
+          if (updating)
+            const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.secondaryText,
+                  ),
+                ),
+                SizedBox(width: 5),
+                Text(
+                  'Updating…',
+                  style: TextStyle(
+                    color: AppColors.secondaryText,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+    final sortMenu = _SortMenu(value: sort, onChanged: onSortChanged);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final largeText = MediaQuery.textScalerOf(context).scale(16) > 22;
+        if (largeText || constraints.maxWidth < 300) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              summary,
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerRight, child: sortMenu),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: summary),
+            const SizedBox(width: 12),
+            sortMenu,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FilterButton extends StatelessWidget {
+  const _FilterButton({
+    required this.count,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  final int count;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      key: const ValueKey('open-filters'),
+      onPressed: loading ? null : onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        side: const BorderSide(color: AppColors.line),
+        shape: const StadiumBorder(),
+      ),
+      child: Semantics(
+        label: count == 0 ? 'Filters' : 'Filters, $count active',
+        excludeSemantics: true,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (loading)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              const Icon(Icons.tune_rounded, size: 19),
+            const SizedBox(width: 7),
+            const Text('Filters'),
+            if (count > 0) ...[
+              const SizedBox(width: 7),
+              Container(
+                constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.ink,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppliedFilters extends StatelessWidget {
+  const _AppliedFilters({
+    required this.query,
+    required this.onRemoveSearch,
+    required this.onRemoveCategory,
+    required this.onRemoveSubCategory,
+    required this.onClearAll,
+  });
+
+  final ProductQuery query;
+  final VoidCallback onRemoveSearch;
+  final ValueChanged<String> onRemoveCategory;
+  final ValueChanged<String> onRemoveSubCategory;
+  final VoidCallback onClearAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final search = query.search.trim();
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (search.isNotEmpty)
+          _RemovableFilterChip(
+            chipKey: 'search',
+            label: '"$search"',
+            onRemove: onRemoveSearch,
+          ),
+        for (final category in query.categories)
+          _RemovableFilterChip(
+            chipKey: 'category-$category',
+            label: category,
+            onRemove: () => onRemoveCategory(category),
+          ),
+        for (final subCategory in query.subCategories)
+          _RemovableFilterChip(
+            chipKey: 'sub-category-$subCategory',
+            label: subCategory,
+            onRemove: () => onRemoveSubCategory(subCategory),
+          ),
+        if (query.appliedFilterCount > 1)
+          TextButton(
+            onPressed: onClearAll,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text(
+              'Clear all',
+              style: TextStyle(decoration: TextDecoration.underline),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RemovableFilterChip extends StatelessWidget {
+  const _RemovableFilterChip({
+    required this.chipKey,
+    required this.label,
+    required this.onRemove,
+  });
+
+  final String chipKey;
+  final String label;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputChip(
+      key: ValueKey('active-filter-$chipKey'),
+      label: Text(label),
+      onPressed: onRemove,
+      onDeleted: onRemove,
+      deleteButtonTooltipMessage: 'Remove filter $label',
+      deleteIcon: const Icon(Icons.close_rounded, size: 17),
+      backgroundColor: AppColors.surface,
+      side: const BorderSide(color: AppColors.line),
+      shape: const StadiumBorder(),
+      labelStyle: const TextStyle(
+        color: AppColors.text,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+}
+
 class _SortMenu extends StatelessWidget {
   const _SortMenu({required this.value, required this.onChanged});
 
@@ -300,6 +534,7 @@ class _SortMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<ProductSort>(
+      tooltip: 'Sort products',
       initialValue: value,
       onSelected: onChanged,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -308,16 +543,25 @@ class _SortMenu extends StatelessWidget {
         for (final s in ProductSort.values)
           PopupMenuItem(value: s, child: Text(s.label)),
       ],
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.swap_vert_rounded, size: 18),
-          const SizedBox(width: 4),
-          Text(
-            value.label,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ],
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border.all(color: AppColors.line),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.swap_vert_rounded, size: 18),
+            const SizedBox(width: 5),
+            Text(
+              value.label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
       ),
     );
   }

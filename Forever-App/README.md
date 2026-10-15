@@ -91,9 +91,9 @@ Flutter 3.44's split Material library; `OtpInput` is a small in-house widget.
 
 ## Tests
 
-`flutter test` runs 28 tests: formatters, error mapping, DTO → entity mapping, `AuthController` / `CartController` /
-pagination with mocked repositories, router redirects driven through the real Login and Verify screens, the OTP widget, profile sheets
-and the floating navigation bar.
+`flutter test` runs 34 tests: formatters, error mapping, DTO → entity mapping, `AuthController` / `CartController` /
+pagination with mocked repositories, catalogue filter state and its bottom sheet, router redirects driven through the real Login and
+Verify screens, the OTP widget, profile sheets and the floating navigation bar.
 
 ## Not done
 

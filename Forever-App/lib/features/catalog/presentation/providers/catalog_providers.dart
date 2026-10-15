@@ -54,6 +54,23 @@ class ProductQueryController extends _$ProductQueryController {
     subCategories: subCategories,
   );
 
+  void removeCategory(String category) => state = state.copyWith(
+    categories: state.categories.where((value) => value != category).toList(),
+  );
+
+  void removeSubCategory(String subCategory) => state = state.copyWith(
+    subCategories: state.subCategories
+        .where((value) => value != subCategory)
+        .toList(),
+  );
+
+  /// Matches the web collection's "Clear all": preserve the chosen sort.
+  void clearSearchAndFilters() => state = state.copyWith(
+    search: '',
+    categories: const [],
+    subCategories: const [],
+  );
+
   /// Single-category shortcut used by the Home chips; null clears the category.
   void selectCategory(String? category) => state = state.copyWith(
     categories: category == null ? const [] : [category],
