@@ -2,6 +2,7 @@ package com.forever.foreverapi.service.serviceImpl;
 
 import com.forever.foreverapi.service.OrderService;
 import com.forever.foreverapi.service.CommerceService;
+import com.forever.foreverapi.service.NotificationService;
 import com.forever.foreverapi.client.mail.EmailService;
 
 import com.forever.foreverapi.common.response.PageResponse;
@@ -33,7 +34,7 @@ import java.util.Set;
 @Service
 public class OrderServiceImpl implements OrderService {
 
-    private static final Set<OrderStatus> CANCELLABLE = EnumSet.of(OrderStatus.PAYMENT_PENDING, OrderStatus.ORDER_PLACED, OrderStatus.PACKING);
+    private static final Set<OrderStatus> CANCELLABLE = EnumSet.of(OrderStatus.PAYMENT_PENDING, OrderStatus.ORDER_PLACED);
     private static final Sort NEWEST = Sort.by(Sort.Direction.DESC, "createdAt", "id");
 
     private final OrderRepository orders;
@@ -44,9 +45,11 @@ public class OrderServiceImpl implements OrderService {
     private final AppProperties props;
     private final CommerceService commerce;
     private final EmailService email;
+    private final NotificationService notifications;
 
     public OrderServiceImpl(OrderRepository orders, CartItemRepository cartItems, UserRepository users, ProductRepository products,
-                        OrderMapper mapper, AppProperties props, CommerceService commerce, EmailService email) {
+                        OrderMapper mapper, AppProperties props, CommerceService commerce, EmailService email,
+                        NotificationService notifications) {
         this.orders = orders;
         this.cartItems = cartItems;
         this.users = users;
@@ -55,11 +58,23 @@ public class OrderServiceImpl implements OrderService {
         this.props = props;
         this.commerce = commerce;
         this.email = email;
+        this.notifications = notifications;
+    }
+
+    private static String orderLink(Long id) {
+        return "/admin/orders?q=%23" + id;
+    }
+
+    private void notifyNewOrder(Order o) {
+        var a = o.getAddress();
+        notifications.notifyAdmins(NotificationService.NEW_ORDER, "New order #" + o.getId(),
+                a.getFirstName() + " " + a.getLastName() + " · $" + o.getTotal() + " · " + o.getItems().size()
+                        + (o.getItems().size() == 1 ? " item" : " items"), orderLink(o.getId()));
     }
 
     @Transactional
     public OrderResponse place(Long userId, PlaceOrderRequest req) {
-        List<CartItem> cart = cartItems.findAllByUser(userId);
+        List<CartItem> cart = selectedCartItems(userId, req.cartItemIds());
         if (cart.isEmpty()) {
             throw ApiException.badRequest("CART_EMPTY", "Your cart is empty");
         }
@@ -96,9 +111,10 @@ public class OrderServiceImpl implements OrderService {
         order.setTotal(itemsAmount.subtract(pricing.discount()).add(pricing.deliveryFee()));
 
         Order saved = orders.save(order);
-        cartItems.deleteAllByUser(userId);
+        cartItems.deleteAll(cart); // only the lines that were bought
         if (req.paymentMethod() == PaymentMethod.COD) {
             email.sendOrderConfirmation(req.address().email(), saved.getId(), saved.getTotal());
+            notifyNewOrder(saved); // online orders notify once paid
         }
         return mapper.toResponse(saved);
     }
@@ -122,7 +138,11 @@ public class OrderServiceImpl implements OrderService {
             throw ApiException.conflict("ORDER_NOT_CANCELLABLE", "This order can no longer be cancelled");
         }
         o.setStatus(OrderStatus.CANCELLED);
+        o.setCancelledBy("CUSTOMER");
         o.getItems().forEach(i -> { if (i.getProductId() != null) commerce.restore(i.getProductId(), i.getSize(), i.getQuantity()); });
+        var a = o.getAddress();
+        notifications.notifyAdmins(NotificationService.ORDER_CANCELLED, "Order #" + o.getId() + " cancelled by the customer",
+                a.getFirstName() + " " + a.getLastName() + " · $" + o.getTotal() + " · stock was put back", orderLink(o.getId()));
         return mapper.toResponse(o);
     }
 
@@ -151,6 +171,8 @@ public class OrderServiceImpl implements OrderService {
             commerce.restore(item.getProductId(), item.getSize(), item.getQuantity());
         });
         order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelledBy("CUSTOMER");
+        order.setCancelReason("Online payment was not completed");
     }
 
     // ---- admin ----
@@ -168,20 +190,40 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Transactional
-    public OrderResponse updateStatus(Long id, OrderStatus status) {
+    public OrderResponse updateStatus(Long id, OrderStatus status, String rawReason) {
         Order o = orders.findById(id).orElseThrow(() -> ApiException.notFound("Order not found"));
         if (status == o.getStatus()) return mapper.toResponse(o);
         if (!o.getStatus().next().contains(status)) {
             throw ApiException.conflict("INVALID_STATUS_CHANGE", invalidChangeMessage(o.getStatus(), status));
         }
+        String reason = rawReason == null ? "" : rawReason.trim();
+        if (status == OrderStatus.CANCELLED && reason.length() < 5) {
+            throw ApiException.badRequest("CANCEL_REASON_REQUIRED", "Tell the customer why the order is cancelled (at least 5 characters)");
+        }
         o.setStatus(status);
         if (status == OrderStatus.CANCELLED) {
+            o.setCancelReason(reason);
+            o.setCancelledBy("ADMIN");
             o.getItems().forEach(i -> { if (i.getProductId() != null) commerce.restore(i.getProductId(), i.getSize(), i.getQuantity()); });
+            var a = o.getAddress();
+            email.sendOrderCancelled(a.getEmail(), a.getFirstName(), o.getId(), o.getTotal(), reason);
         }
         if (status == OrderStatus.DELIVERED && o.getPaymentMethod() == PaymentMethod.COD) {
             o.setPaid(true); // cash collected on delivery
         }
         return mapper.toResponse(o);
+    }
+
+    /** The cart lines being checked out: all of them, or only [ids] when the customer picked some. */
+    private List<CartItem> selectedCartItems(Long userId, List<Long> ids) {
+        List<CartItem> all = cartItems.findAllByUser(userId);
+        if (ids == null || ids.isEmpty()) return all;
+        Set<Long> wanted = Set.copyOf(ids);
+        List<CartItem> selected = all.stream().filter(c -> wanted.contains(c.getId())).toList();
+        if (selected.size() != wanted.size()) {
+            throw ApiException.conflict("CART_CHANGED", "Some selected items are no longer in your cart. Please review your cart and try again");
+        }
+        return selected;
     }
 
     private static String invalidChangeMessage(OrderStatus from, OrderStatus to) {
@@ -207,6 +249,7 @@ public class OrderServiceImpl implements OrderService {
             if (order.getStatus() == OrderStatus.PAYMENT_PENDING) {
                 order.setStatus(OrderStatus.ORDER_PLACED);
                 email.sendOrderConfirmation(order.getAddress().getEmail(), order.getId(), order.getTotal());
+                notifyNewOrder(order);
             }
         }
     }

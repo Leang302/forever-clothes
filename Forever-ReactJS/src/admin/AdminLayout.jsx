@@ -2,6 +2,8 @@ import { useContext, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { ShopContext } from "../context/ShopContext";
 import { assets } from "../assets/admin_assets/assets";
+import NotificationBell from "./components/NotificationBell";
+import ProductDrawerHost from "./components/ProductDrawerHost";
 
 const Icon = ({ d }) => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -12,8 +14,8 @@ const Icon = ({ d }) => (
 const NAV = [
   { to: '/admin', label: 'Dashboard', end: true, icon: <Icon d="M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10" /> },
   { to: '/admin/products', label: 'Products', end: true, icon: <Icon d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /> },
-  { to: '/admin/products/new', label: 'Add product', icon: <img src={assets.add_icon} alt="" className="w-5 h-5" /> },
-  { to: '/admin/orders', label: 'Orders', icon: <img src={assets.order_icon} alt="" className="w-5 h-5" /> },
+  // Outline (currentColor) like the others, so it turns white on the active black background.
+  { to: '/admin/orders', label: 'Orders', icon: <Icon d="M9 4h6a1 1 0 011 1v1H8V5a1 1 0 011-1zM8 6H6a1 1 0 00-1 1v13a1 1 0 001 1h12a1 1 0 001-1V7a1 1 0 00-1-1h-2M9 12h6M9 16h4" /> },
   { to: '/admin/categories', label: 'Categories', icon: <Icon d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /> },
   { to: '/admin/inventory', label: 'Inventory', icon: <Icon d="M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4" /> },
   { to: '/admin/customers', label: 'Customers', icon: <Icon d="M16 19v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1M9 10a3 3 0 100-6 3 3 0 000 6zm13 9v-1a4 4 0 00-3-3.87M16 4.13a3 3 0 010 5.74" /> },
@@ -26,7 +28,7 @@ const linkClass = ({ isActive }) =>
   }`;
 
 const AdminLayout = () => {
-  const { user, logout } = useContext(ShopContext);
+  const { user, requestLogout } = useContext(ShopContext);
   const [open, setOpen] = useState(false);
 
   return (
@@ -41,9 +43,10 @@ const AdminLayout = () => {
         </div>
         <div className="hidden lg:block text-sm text-gray-500">Admin panel</div>
         <div className="flex items-center gap-4 text-sm">
+          <NotificationBell />
           <Link to="/" className="text-gray-500 hover:text-black hidden sm:inline">View store</Link>
           <span className="hidden sm:inline text-gray-700">{user.name}</span>
-          <button onClick={logout} className="border border-gray-300 px-3 py-1 rounded hover:bg-gray-100">Logout</button>
+          <button onClick={requestLogout} className="border border-gray-300 px-3 py-1 rounded hover:bg-gray-100">Logout</button>
         </div>
       </header>
 
@@ -66,6 +69,7 @@ const AdminLayout = () => {
       <main className="lg:pl-60">
         <div className="p-4 sm:p-6 max-w-6xl mx-auto"><Outlet /></div>
       </main>
+      <ProductDrawerHost />
     </div>
   );
 };

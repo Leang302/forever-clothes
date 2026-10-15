@@ -51,7 +51,8 @@ public class StorageService {
 
     /** Uploads an admin-provided image and returns its object key. */
     public String uploadImage(MultipartFile file, String folder) {
-        String type = file.getContentType();
+        // The browser's Content-Type is only a label anyone can fake, so the real type comes from the file's bytes.
+        String type = sniffImageType(file);
         if (type == null || !IMAGE_TYPES.contains(type)) {
             throw ApiException.badRequest("INVALID_IMAGE", "Only PNG, JPEG, WEBP or GIF images are allowed");
         }
@@ -68,6 +69,23 @@ public class StorageService {
             throw ApiException.unavailable("STORAGE_ERROR", "Could not read uploaded file");
         }
         return key;
+    }
+
+    /** Image type from the file signature (magic bytes), or null when it is not a supported image. */
+    private static String sniffImageType(MultipartFile file) {
+        byte[] head = new byte[12];
+        int n;
+        try (InputStream in = file.getInputStream()) {
+            n = in.readNBytes(head, 0, head.length);
+        } catch (IOException e) {
+            throw ApiException.badRequest("INVALID_IMAGE", "Could not read uploaded file");
+        }
+        if (n >= 8 && (head[0] & 0xFF) == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G') return "image/png";
+        if (n >= 3 && (head[0] & 0xFF) == 0xFF && (head[1] & 0xFF) == 0xD8 && (head[2] & 0xFF) == 0xFF) return "image/jpeg";
+        if (n >= 6 && head[0] == 'G' && head[1] == 'I' && head[2] == 'F' && head[3] == '8') return "image/gif";
+        if (n >= 12 && head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F'
+                && head[8] == 'W' && head[9] == 'E' && head[10] == 'B' && head[11] == 'P') return "image/webp";
+        return null;
     }
 
     public void put(String key, InputStream in, long size, String contentType) {

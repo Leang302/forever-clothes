@@ -1,7 +1,0 @@
-Name:        Kids Green Drawstring Pants
-Description: Comfortable relaxed-fit pants with an elastic drawstring waist. Made from breathable fabric for active kids.
-Category:    Kids
-Type:        Bottomwear
-Price ($):   29
-Sizes:       S, M, L, XL
-Bestseller:  No

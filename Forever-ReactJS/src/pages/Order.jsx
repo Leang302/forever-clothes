@@ -5,12 +5,13 @@ import { ShopContext } from "../context/ShopContext"
 import { api } from "../api/client"
 import Title from './../components/Title';
 import useApi from "../components/useApi";
+import { Pagination } from "../admin/components/ui";
+
+const PAGE_SIZE = 5;
 
 const STATUS = {
   ORDER_PLACED: ['Order placed', 'bg-orange-400'],
-  PACKING: ['Packing', 'bg-orange-400'],
   SHIPPED: ['Shipped', 'bg-blue-500'],
-  OUT_FOR_DELIVERY: ['Out for delivery', 'bg-blue-500'],
   DELIVERED: ['Delivered', 'bg-green-500'],
   CANCELLED: ['Cancelled', 'bg-red-500'],
 };
@@ -20,7 +21,8 @@ const Order = () => {
   const [version, setVersion] = useState(0);
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [cancelling, setCancelling] = useState(false);
-  const { data, loading, error } = useApi(() => api.orders({ size: 50 }), [version]);
+  const [page, setPage] = useState(0);
+  const { data, loading, error } = useApi(() => api.orders({ page, size: PAGE_SIZE }), [version, page]);
   const reload = () => setVersion((v) => v + 1);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ const Order = () => {
       {!loading && !error && orders.length === 0 && <p className="py-10 text-gray-500">You have no orders yet.</p>}
       {orders.map((order) => {
         const [label, dot] = STATUS[order.status] || [order.status, 'bg-gray-400'];
-        const cancellable = order.status === 'ORDER_PLACED' || order.status === 'PACKING';
+        const cancellable = order.status === 'ORDER_PLACED';
         return (
           <div key={order.id} className="mt-6 border text-gray-700">
             <div className="flex justify-between px-4 py-3 bg-gray-50 text-sm">
@@ -83,10 +85,13 @@ const Order = () => {
               </div>
             ))}
             <div className="border-t px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <p className={`min-w-2 h-2 rounded-full ${dot}`}></p>
                 <p className="text-sm sm:text-base">{label}</p>
                 <p className="text-sm text-gray-500">· {order.paymentMethod}{order.paid ? ' (paid)' : ''} · Total {currency}{Number(order.total).toFixed(2)}</p>
+                {order.status === 'CANCELLED' && order.cancelledBy === 'ADMIN' && order.cancelReason && (
+                  <p className="w-full text-sm text-red-700 md:w-auto">Reason: {order.cancelReason}</p>
+                )}
               </div>
               <div className="flex gap-3">
                 {cancellable && <button onClick={() => setOrderToCancel(order)} className="border px-4 py-2 text-red-600 rounded hover:bg-red-50 transition-colors">Cancel</button>}
@@ -96,6 +101,7 @@ const Order = () => {
           </div>
         );
       })}
+      <Pagination page={page} totalPages={data?.totalPages || 0} total={data?.totalElements} pageSize={data?.size} onChange={(p) => { setPage(p); window.scrollTo(0, 0); }} />
 
       {orderToCancel && (
         <div

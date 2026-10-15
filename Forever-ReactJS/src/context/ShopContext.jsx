@@ -3,6 +3,7 @@ import { createContext, useCallback, useEffect, useState } from "react";
 import { toast } from 'react-toastify';
 import { useNavigate } from "react-router-dom";
 import { api, session } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export const ShopContext = createContext();
 
@@ -59,6 +60,10 @@ const ShopContextProvider = (props) => {
       await loadCart();
       setWishlist(await api.wishlist());
    };
+
+   // Logging out goes through a confirmation; `logout` itself stays immediate for session expiry etc.
+   const [confirmingLogout, setConfirmingLogout] = useState(false);
+   const requestLogout = () => setConfirmingLogout(true);
 
    const logout = async () => {
       try {
@@ -138,6 +143,7 @@ const ShopContextProvider = (props) => {
       authReady,
       startSession,
       logout,
+      requestLogout,
       requireLogin,
       cart,
       setCart,
@@ -153,6 +159,16 @@ const ShopContextProvider = (props) => {
    return (
       <ShopContext.Provider value={value}>
          {props.children}
+         {confirmingLogout && (
+            <ConfirmDialog
+               title="Log out?"
+               message="You will need to sign in again to see your cart, orders and wishlist."
+               confirmLabel="Log out"
+               cancelLabel="Stay signed in"
+               onCancel={() => setConfirmingLogout(false)}
+               onConfirm={() => { setConfirmingLogout(false); logout(); }}
+            />
+         )}
       </ShopContext.Provider>
    )
 }

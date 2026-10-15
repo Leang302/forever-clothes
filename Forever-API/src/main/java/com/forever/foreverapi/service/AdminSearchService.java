@@ -18,7 +18,7 @@ public interface AdminSearchService {
      * @param sort          newest | oldest | total_desc | total_asc | status
      */
     PageResponse<OrderResponse> orders(String q, String status, String paymentMethod, Boolean paid,
-                                       LocalDate from, LocalDate to, String sort, int page, int size);
+                                       LocalDate from, LocalDate to, String coupon, String sort, int page, int size);
 
     /**
      * @param categories one or more categories (any match)

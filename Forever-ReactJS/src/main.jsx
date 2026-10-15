@@ -1,14 +1,20 @@
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
-import { BrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import ShopContextProvider from './context/ShopContext.jsx'
 
-createRoot(document.getElementById('root')).render(
-  <BrowserRouter>
-    <ShopContextProvider>
-    <App/>
-    </ShopContextProvider>
-  </BrowserRouter>,
-  
-)
+// A data router (rather than <BrowserRouter>) is needed for useBlocker, which forms use to confirm before
+// leaving with unsaved changes. App keeps declaring its pages with <Routes> under this catch-all route.
+const router = createBrowserRouter([
+  {
+    path: '*',
+    element: (
+      <ShopContextProvider>
+        <App/>
+      </ShopContextProvider>
+    ),
+  },
+])
+
+createRoot(document.getElementById('root')).render(<RouterProvider router={router} />)

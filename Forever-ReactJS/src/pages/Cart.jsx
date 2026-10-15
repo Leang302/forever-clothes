@@ -1,5 +1,5 @@
 //Cart.jsx
-import { useContext } from "react"
+import { useContext, useState } from "react"
 import { ShopContext } from "../context/ShopContext"
 import Title from './../components/Title';
 import { assets } from "../assets/frontend_assets/assets";
@@ -7,6 +7,17 @@ import CartTotal from "../components/CartTotal";
 
 const Cart = () => {
   const {currency,cart,updateQuantity,navigate} = useContext(ShopContext);
+  // Lines left out of this checkout. Tracking the unticked ones means newly added items start ticked.
+  const [unselected, setUnselected] = useState(() => new Set());
+  const selectedItems = cart.items.filter((item) => !unselected.has(item.id));
+  const allSelected = selectedItems.length === cart.items.length;
+  const toggle = (id) => setUnselected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setUnselected(allSelected ? new Set(cart.items.map((item) => item.id)) : new Set());
+  const checkout = () => navigate(allSelected ? '/place-order' : `/place-order?items=${selectedItems.map((item) => item.id).join(',')}`);
 
   return (
     <div className="border-t pt-14">
@@ -19,10 +30,18 @@ const Cart = () => {
           <button onClick={()=>navigate('/collection')} className="mt-6 bg-black text-white text-sm py-3 px-7">START SHOPPING</button>
         </div>
       )}
+      {cart.items.length > 0 && (
+        <label className="flex items-center gap-3 py-3 text-sm text-gray-600 cursor-pointer">
+          <input type="checkbox" className="w-4 h-4 accent-black" checked={allSelected} onChange={toggleAll} />
+          Select all ({selectedItems.length}/{cart.items.length})
+        </label>
+      )}
       {
         cart.items.map((item)=>(
             <div key={item.id} className="py-4 border-t border-b text-gray-700 grid grid-cols-[4fr_0.5fr_0.5fr] sm:grid-cols-[4fr_2fr_0.5fr] items-center gap-4">
-              <div className="flex items-start gap-6">
+              <div className="flex items-start gap-4 sm:gap-6">
+                <input type="checkbox" aria-label={`Include ${item.name} in checkout`} className="mt-1 w-4 h-4 shrink-0 accent-black cursor-pointer"
+                  checked={!unselected.has(item.id)} onChange={() => toggle(item.id)} />
                 <img onClick={()=>navigate(`/product/${item.productId}`)} className="w-1/6 sm:w-20 cursor-pointer" src={item.image} alt="" />
                 <div>
                   <p className="text-sm font-medium sm:text-lg">{item.name}</p>
@@ -46,9 +65,11 @@ const Cart = () => {
       {cart.items.length > 0 && (
         <div className="flex justify-end my-20 ">
           <div className="w-full sm:w-[450px]">
-            <CartTotal/>
+            <CartTotal items={selectedItems}/>
             <div className="w-full text-end">
-            <button onClick={()=>navigate('/place-order')} className="uppercase bg-black text-white text-sm my-8 py-3 px-7"> Proceed to checkout</button>
+            <button onClick={checkout} disabled={selectedItems.length === 0} className="uppercase bg-black text-white text-sm my-8 py-3 px-7 disabled:bg-gray-400">
+              {selectedItems.length === 0 ? 'Select items to checkout' : `Checkout ${selectedItems.length} item${selectedItems.length === 1 ? '' : 's'}`}
+            </button>
             </div>
           </div>
         </div>

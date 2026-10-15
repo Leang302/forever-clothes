@@ -66,6 +66,13 @@ public class Order {
     @Column(name = "shipping_method")
     private String shippingMethod = "STANDARD";
 
+    @Column(name = "cancel_reason")
+    private String cancelReason;
+
+    /** ADMIN or CUSTOMER, set when the order is cancelled. */
+    @Column(name = "cancelled_by")
+    private String cancelledBy;
+
     @Embedded
     private ShippingAddress address;
 

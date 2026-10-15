@@ -1,7 +1,0 @@
-Name:        Women Pink Bomber Jacket
-Description: Lightweight zip-front bomber jacket in soft pink with ribbed cuffs and hem. Warm enough for cool evenings and easy to layer.
-Category:    Women
-Type:        Winterwear
-Price ($):   89
-Sizes:       S, M, L
-Bestseller:  No

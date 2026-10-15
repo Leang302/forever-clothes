@@ -1,0 +1,9 @@
+Name:         Women Palm Print Maxi Dress
+Description:  Flowing cold-shoulder maxi dress with a black palm-leaf print and adjustable straps. Perfect for holidays and warm days.
+Category:     Women
+Sub category: Topwear
+Price ($):    55
+Sizes:        S, M, L
+Bestseller:   No
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

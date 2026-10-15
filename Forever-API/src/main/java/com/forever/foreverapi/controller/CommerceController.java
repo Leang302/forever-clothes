@@ -25,8 +25,24 @@ public class CommerceController {
     @GetMapping("/api/admin/categories") public List<CategoryRow> categories() { return commerce.categories(); }
     @PostMapping("/api/admin/categories") @ResponseStatus(HttpStatus.CREATED)
     public CategoryRow category(@Valid @RequestBody NameRequest request) { return commerce.addCategory(request.name()); }
+    @PutMapping("/api/admin/categories/{id}")
+    public CategoryRow renameCategory(@PathVariable Long id, @Valid @RequestBody NameRequest request) { return commerce.renameCategory(id, request.name()); }
+    @PostMapping("/api/admin/categories/{id}/move-products")
+    public MoveProductsResult moveProducts(@PathVariable Long id, @Valid @RequestBody MoveProductsRequest request) {
+        return commerce.moveProducts(id, request.targetId(), request.targetSubCategoryId(), request.productIds());
+    }
     @DeleteMapping("/api/admin/categories/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteCategory(@PathVariable Long id) { commerce.deleteCategory(id); }
+    public void deleteCategory(@PathVariable Long id, @RequestParam(required = false) Long moveTo,
+                               @RequestParam(required = false) Long moveToSub) { commerce.deleteCategory(id, moveTo, moveToSub); }
+
+    @GetMapping("/api/admin/categories/{id}/sub-categories")
+    public List<SubCategoryRow> subCategories(@PathVariable Long id) { return commerce.subCategories(id); }
+    @PostMapping("/api/admin/categories/{id}/sub-categories") @ResponseStatus(HttpStatus.CREATED)
+    public SubCategoryRow addSubCategory(@PathVariable Long id, @Valid @RequestBody NameRequest request) { return commerce.addSubCategory(id, request.name()); }
+    @PutMapping("/api/admin/sub-categories/{id}")
+    public SubCategoryRow renameSubCategory(@PathVariable Long id, @Valid @RequestBody NameRequest request) { return commerce.renameSubCategory(id, request.name()); }
+    @DeleteMapping("/api/admin/sub-categories/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSubCategory(@PathVariable Long id, @RequestParam(required = false) Long moveTo) { commerce.deleteSubCategory(id, moveTo); }
 
     @GetMapping("/api/admin/customers") public List<CustomerRow> customers() { return commerce.customers(); }
     @GetMapping("/api/admin/customers/{id}/orders")

@@ -12,7 +12,8 @@ public interface OrderService {
     OrderResponse cancel(Long userId, Long id);
     void abortOnlinePayment(Long userId, Long id);
     PageResponse<OrderResponse> all(OrderStatus status, int page, int size);
-    OrderResponse updateStatus(Long id, OrderStatus status);
+    /** {@code reason} is required for CANCELLED (emailed to the customer) and ignored otherwise. */
+    OrderResponse updateStatus(Long id, OrderStatus status, String reason);
     PageResponse<OrderResponse> forCustomer(Long userId, int page, int size);
     void confirmOnlinePayment(Long orderId);
 }

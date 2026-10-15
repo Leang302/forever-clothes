@@ -127,7 +127,7 @@ class _OrderList extends ConsumerWidget {
 Color statusColor(OrderStatus s) => switch (s) {
   OrderStatus.delivered => AppColors.success,
   OrderStatus.cancelled => AppColors.danger,
-  OrderStatus.shipped || OrderStatus.outForDelivery => AppColors.info,
+  OrderStatus.shipped => AppColors.info,
   _ => AppColors.warning,
 };
 

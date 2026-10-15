@@ -4,9 +4,7 @@ part 'order.freezed.dart';
 
 enum OrderStatus {
   orderPlaced('ORDER_PLACED', 'Order placed'),
-  packing('PACKING', 'Packing'),
   shipped('SHIPPED', 'Shipped'),
-  outForDelivery('OUT_FOR_DELIVERY', 'Out for delivery'),
   delivered('DELIVERED', 'Delivered'),
   cancelled('CANCELLED', 'Cancelled');
 
@@ -14,7 +12,7 @@ enum OrderStatus {
   final String apiValue;
   final String label;
 
-  bool get isCancellable => this == orderPlaced || this == packing;
+  bool get isCancellable => this == orderPlaced;
 
   static OrderStatus fromApi(String value) => values.firstWhere(
     (s) => s.apiValue == value,

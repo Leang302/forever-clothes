@@ -6,9 +6,7 @@ import { ShopContext } from '../context/ShopContext';
 
 const STEPS = [
   ['ORDER_PLACED', 'Placed'],
-  ['PACKING', 'Packing'],
   ['SHIPPED', 'Shipped'],
-  ['OUT_FOR_DELIVERY', 'Out for delivery'],
   ['DELIVERED', 'Delivered'],
 ];
 
@@ -33,8 +31,15 @@ const OrderDetail = () => {
       </div>
 
       <div className="my-9 rounded-lg border p-5 sm:p-7">
-        {cancelled ? <p className="font-medium text-red-600">This order was cancelled.</p> : (
-          <div className="grid grid-cols-5 gap-2">
+        {cancelled ? (
+          <div>
+            <p className="font-medium text-red-600">
+              {order.cancelledBy === 'ADMIN' ? 'We cancelled this order.' : 'This order was cancelled.'}
+            </p>
+            {order.cancelReason && <p className="mt-2 text-sm text-gray-700">Reason: {order.cancelReason}</p>}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
             {STEPS.map(([status, label], index) => (
               <div key={status} className="text-center">
                 <div className={`mx-auto mb-2 h-2.5 w-2.5 rounded-full ${index <= currentStep ? 'bg-black' : 'bg-gray-200'}`} />

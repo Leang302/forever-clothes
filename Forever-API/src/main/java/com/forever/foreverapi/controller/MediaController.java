@@ -44,6 +44,7 @@ public class MediaController {
                 .contentType(type)
                 .contentLength(obj.size())
                 .header(HttpHeaders.ETAG, "\"" + obj.etag() + "\"")
+                .header("X-Content-Type-Options", "nosniff") // never let a browser treat a stored file as anything else
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(7)).cachePublic())
                 .body(new InputStreamResource(obj.stream()));
     }

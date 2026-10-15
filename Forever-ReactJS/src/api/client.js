@@ -166,13 +166,32 @@ export const api = {
   adminSetProductActive: (id, active) =>
     request(`/api/admin/products/${id}/active`, { method: 'PATCH', query: { active } }),
   adminOrders: (query) => request('/api/admin/orders', { query }),
-  adminUpdateOrderStatus: (id, status) =>
-    request(`/api/admin/orders/${id}/status`, { method: 'PATCH', body: { status } }),
+  // reason is required for CANCELLED; it is emailed to the customer.
+  adminUpdateOrderStatus: (id, status, reason) =>
+    request(`/api/admin/orders/${id}/status`, { method: 'PATCH', body: { status, reason } }),
+  // Resolves { items: [{ id, type, title, message, link, read, createdAt }], unreadCount }.
+  adminNotifications: (query) => request('/api/admin/notifications', { query }),
+  adminReadNotification: (id) => post(`/api/admin/notifications/${id}/read`),
+  adminReadAllNotifications: () => post('/api/admin/notifications/read-all'),
   adminInventory: () => request('/api/admin/inventory'),
   adminSetStock: (productId, size, stock) => request(`/api/admin/inventory/${productId}/${size}`, { method: 'PUT', body: { stock } }),
   adminCategories: () => request('/api/admin/categories'),
   adminAddCategory: (name) => post('/api/admin/categories', { name }),
-  adminDeleteCategory: (id) => request(`/api/admin/categories/${id}`, { method: 'DELETE' }),
+  adminRenameCategory: (id, name) => request(`/api/admin/categories/${id}`, { method: 'PUT', body: { name } }),
+  // productIds omitted = move every product in the category. Resolves { moved, target }.
+  // targetSubCategoryId omitted = products keep their sub-category. Resolves { moved, target, subCategory }.
+  adminMoveCategoryProducts: (id, { targetId, targetSubCategoryId, productIds }) =>
+    post(`/api/admin/categories/${id}/move-products`, { targetId, targetSubCategoryId, productIds }),
+  // moveTo is required while the category still has products.
+  // moveToSub (a sub-category of moveTo) puts all moved products in it; omitted = they keep their own.
+  adminDeleteCategory: (id, moveTo, moveToSub) =>
+    request(`/api/admin/categories/${id}`, { method: 'DELETE', query: { moveTo, moveToSub } }),
+  // Sub-categories belong to one category. Resolves [{ id, categoryId, name, productCount }].
+  adminSubCategories: (categoryId) => request(`/api/admin/categories/${categoryId}/sub-categories`),
+  adminAddSubCategory: (categoryId, name) => post(`/api/admin/categories/${categoryId}/sub-categories`, { name }),
+  adminRenameSubCategory: (id, name) => request(`/api/admin/sub-categories/${id}`, { method: 'PUT', body: { name } }),
+  // moveTo (another sub-category of the same category) is required while it still has products.
+  adminDeleteSubCategory: (id, moveTo) => request(`/api/admin/sub-categories/${id}`, { method: 'DELETE', query: { moveTo } }),
   adminCoupons: () => request('/api/admin/coupons'),
   adminAddCoupon: (body) => post('/api/admin/coupons', body),
   adminUpdateCoupon: (id, body) => request(`/api/admin/coupons/${id}`, { method: 'PUT', body }),

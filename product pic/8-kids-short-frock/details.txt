@@ -1,0 +1,9 @@
+Name:         Girls Teal Tiered Bow Dress
+Description:  Tiered teal party dress with a ruffled skirt and a big bow at the waist. Light fabric that keeps little ones comfortable.
+Category:     Kids
+Sub category: Topwear
+Price ($):    28
+Sizes:        S, M, L, XL
+Bestseller:   No
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

@@ -37,6 +37,7 @@ public class OrderMapper {
                 .toList();
         return new OrderResponse(o.getId(), o.getStatus(), o.getPaymentMethod(), o.isPaid(), o.getItemsAmount(),
                 o.getDeliveryFee(), o.getDiscount(), o.getCouponCode(), o.getShippingMethod(), o.getTotal(),
-                toDto(o.getAddress()), items, o.getUser().getId(), o.getCreatedAt(), o.getStatus().next());
+                toDto(o.getAddress()), items, o.getUser().getId(), o.getCreatedAt(), o.getStatus().next(),
+                o.getCancelReason(), o.getCancelledBy());
     }
 }

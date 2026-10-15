@@ -1,13 +1,55 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import useApi from "../../components/useApi";
-import { Card, Empty, ErrorText, Loading, PageTitle, Pagination, SearchInput, Segmented, SortTh, Stat, StatusBadge } from "../components/ui";
+import { Card, ClearFilters, Empty, ErrorText, Loading, PageTitle, Pagination, SearchInput, Segmented, SortTh, Stat, StatusBadge } from "../components/ui";
 import { formatDate, money } from "../format";
-import { matches, sortRows, useSort } from "../table";
+import { matches, paginate, sortRows, usePage, useSort } from "../table";
 
 const ORDERS_PAGE_SIZE = 8;
+const PAGE_SIZE = 10;
 const shortDate = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const HEADER_HEIGHT = 56; // the admin top bar is `sticky top-0 h-14`
+
+/**
+ * Keeps the filter bar stuck under the admin header. `sentinelRef` marks where the bar sits in the flow,
+ * `barRef` is the bar itself. Returns whether it is stuck (for the shadow), its height (so the table header
+ * can stick right below it) and `scrollToTop()`, which brings the list back to its top if it was scrolled past.
+ */
+function useStickyBar(ready) {
+  const sentinelRef = useRef(null);
+  const barRef = useRef(null);
+  const [stuck, setStuck] = useState(false);
+  const [barHeight, setBarHeight] = useState(0);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const bar = barRef.current;
+    if (!sentinel || !bar) return undefined;
+    const onScroll = () => setStuck(sentinel.getBoundingClientRect().top < HEADER_HEIGHT);
+    const ro = new ResizeObserver(() => setBarHeight(bar.offsetHeight));
+    ro.observe(bar);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    requestAnimationFrame(onScroll);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [ready]);
+
+  const scrollToTop = useCallback(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const top = sentinel.getBoundingClientRect().top;
+    if (top >= HEADER_HEIGHT) return; // list top is already in view
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: window.scrollY + top - HEADER_HEIGHT, behavior: reduce ? 'auto' : 'smooth' });
+  }, []);
+
+  return { sentinelRef, barRef, stuck, barHeight, scrollToTop };
+}
 
 // Slide-over with one customer's details and paginated order history.
 const CustomerPanel = ({ customer, onClose }) => {
@@ -91,7 +133,7 @@ const CustomerPanel = ({ customer, onClose }) => {
               </li>
             ))}
           </ul>
-          <Pagination page={page} totalPages={data?.totalPages || 0} onChange={setPage} />
+          <Pagination page={page} totalPages={data?.totalPages || 0} total={data?.totalElements} pageSize={data?.size} onChange={setPage} />
         </div>
       </aside>
     </>
@@ -121,12 +163,21 @@ const Customers = () => {
       joined: (c) => new Date(c.createdAt).getTime(),
     });
   }, [customers, search, segment, sort]);
+  const [page, setPage] = usePage(JSON.stringify([search, segment, sort]));
+  const paged = paginate(visible, page, PAGE_SIZE);
 
   const stats = useMemo(() => {
     const buyers = customers.filter((c) => c.orderCount > 0);
     const revenue = customers.reduce((sum, c) => sum + Number(c.totalSpent), 0);
     return { buyers: buyers.length, revenue, avg: buyers.length ? revenue / buyers.length : 0 };
   }, [customers]);
+
+  const { sentinelRef, barRef, stuck, barHeight, scrollToTop } = useStickyBar(!loading && !error);
+  const activeFilters = (search.trim() ? 1 : 0) + (segment !== 'all' ? 1 : 0);
+  const goToPage = (p) => {
+    setPage(p);
+    scrollToTop();
+  };
 
   if (loading) return <Loading />;
   if (error) return <ErrorText error={error} />;
@@ -135,33 +186,57 @@ const Customers = () => {
     <>
       <PageTitle title="Customers" />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
         <Stat label="Customers" value={customers.length} />
         <Stat label="Have ordered" value={stats.buyers} hint={`${customers.length - stats.buyers} never ordered`} />
         <Stat label="Customer revenue" value={money(stats.revenue)} hint="excluding cancelled" />
         <Stat label="Avg. per buyer" value={money(stats.avg)} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search name, email or phone" />
-        <Segmented
-          value={segment}
-          onChange={setSegment}
-          options={[
-            ['all', 'All'],
-            ['buyers', 'With orders'],
-            ['none', 'No orders'],
-          ]}
-        />
-        <span className="text-sm text-gray-500">{visible.length} customers</span>
+      {/* Filter bar sticks under the admin header (top-14) while the list scrolls; the table header sticks below it. */}
+      <div ref={sentinelRef} aria-hidden="true" />
+      <div
+        ref={barRef}
+        className={`sticky top-14 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 py-3 mb-1 bg-gray-50 border-b transition-shadow ${
+          stuck ? 'border-gray-200 shadow-sm' : 'border-transparent'
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          {stuck && <h2 className="hidden md:block font-medium">Customers</h2>}
+          <SearchInput value={search} onChange={setSearch} placeholder="Search name, email or phone" />
+          <Segmented
+            value={segment}
+            onChange={setSegment}
+            options={[
+              ['all', 'All'],
+              ['buyers', 'With orders'],
+              ['none', 'No orders'],
+            ]}
+          />
+          <span className="text-sm text-gray-500">{visible.length} customers</span>
+          {activeFilters > 0 && (
+            <ClearFilters
+              count={activeFilters}
+              onClick={() => {
+                setSearch('');
+                setSegment('all');
+              }}
+            />
+          )}
+        </div>
       </div>
 
-      <Card className="overflow-x-auto">
+      {/* overflow-x-auto would make the card the scroll container and break the sticky table header, so it is only
+          used on phones; from sm up the table fits and overflow-clip keeps the rounded corners without breaking sticky. */}
+      <Card className="overflow-x-auto sm:overflow-clip">
         {visible.length === 0 ? (
           <Empty>No customers found</Empty>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-left">
+            <thead
+              className="sm:sticky z-10 bg-gray-50 text-gray-500 text-left shadow-[inset_0_-1px_0_rgb(229,231,235)]"
+              style={{ top: HEADER_HEIGHT + barHeight }}
+            >
               <tr>
                 <SortTh label="Customer" sortKey="name" sort={sort} onSort={onSort} />
                 <th className="px-4 py-3 font-normal hidden md:table-cell">Phone</th>
@@ -171,7 +246,7 @@ const Customers = () => {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {visible.map((c) => (
+              {paged.rows.map((c) => (
                 <tr
                   key={c.id}
                   onClick={() => setSelected(c)}
@@ -193,6 +268,7 @@ const Customers = () => {
           </table>
         )}
       </Card>
+      <Pagination page={paged.page} totalPages={paged.totalPages} total={paged.total} pageSize={paged.pageSize} onChange={goToPage} />
 
       {selected && <CustomerPanel key={selected.id} customer={selected} onClose={() => setSelected(null)} />}
     </>

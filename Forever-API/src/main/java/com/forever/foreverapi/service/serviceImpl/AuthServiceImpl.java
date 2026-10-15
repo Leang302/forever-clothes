@@ -2,6 +2,7 @@ package com.forever.foreverapi.service.serviceImpl;
 
 import com.forever.foreverapi.service.AuthService;
 import com.forever.foreverapi.service.LoginAttemptLimiter;
+import com.forever.foreverapi.service.NotificationService;
 import com.forever.foreverapi.service.OtpService;
 
 import com.forever.foreverapi.service.JwtService;
@@ -40,10 +41,13 @@ public class AuthServiceImpl implements AuthService {
     private final OtpService otp;
     private final LoginAttemptLimiter loginLimiter;
     private final AppProperties props;
+    private final NotificationService notifications;
     private final SecureRandom random = new SecureRandom();
 
     public AuthServiceImpl(UserRepository users, RefreshTokenRepository refreshTokens, PasswordEncoder encoder,
-                       JwtService jwt, OtpService otp, LoginAttemptLimiter loginLimiter, AppProperties props) {
+                       JwtService jwt, OtpService otp, LoginAttemptLimiter loginLimiter, AppProperties props,
+                       NotificationService notifications) {
+        this.notifications = notifications;
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.encoder = encoder;
@@ -78,6 +82,10 @@ public class AuthServiceImpl implements AuthService {
         User user = users.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> ApiException.badRequest("INVALID_OTP", "Invalid or expired code"));
         otp.verifyAndConsume(email, OtpPurpose.VERIFY_EMAIL, code);
+        if (!user.isEmailVerified()) {
+            notifications.notifyAdmins(NotificationService.NEW_CUSTOMER, "New customer: " + user.getName(), user.getEmail(),
+                    "/admin/customers");
+        }
         user.setEmailVerified(true);
         return issueTokens(users.save(user));
     }

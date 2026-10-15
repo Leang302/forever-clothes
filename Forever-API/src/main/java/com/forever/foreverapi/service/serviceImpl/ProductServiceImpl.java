@@ -154,8 +154,8 @@ public class ProductServiceImpl implements ProductService {
         p.setName(f.name().trim());
         p.setDescription(f.description().trim());
         p.setPrice(f.price());
-        p.setCategory(f.category().trim());
-        p.setSubCategory(f.subCategory().trim());
+        p.setCategory(commerce.requireCategory(f.category()));
+        p.setSubCategory(commerce.requireSubCategory(p.getCategory(), f.subCategory()));
         p.setBestseller(Boolean.TRUE.equals(f.bestseller()));
         List<String> sizes = f.sizes().stream().flatMap(s -> java.util.Arrays.stream(s.split(",")))
                 .map(String::trim).filter(s -> !s.isEmpty()).distinct().toList();

@@ -1,8 +1,0 @@
-Name:        Men Oversized Polo Shirt
-Description: Relaxed-fit cotton polo in soft peach with a contrast white collar and short sleeves. Comfortable for casual days and smart enough for going out.
-Category:    Men
-Type:        Topwear
-Price ($):   45
-Sizes:       S, M, L, XL
-Bestseller:  Yes
-Images:      upload all 4 to show multi-image upload

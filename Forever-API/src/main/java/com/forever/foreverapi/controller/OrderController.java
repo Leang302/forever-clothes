@@ -52,7 +52,7 @@ public class OrderController {
         return orders.getMine(user.id(), id);
     }
 
-    @Operation(summary = "Cancel my order (only while ORDER_PLACED or PACKING)")
+    @Operation(summary = "Cancel my order (only while ORDER_PLACED, before it ships)")
     @PostMapping("/{id}/cancel")
     public OrderResponse cancel(@AuthenticationPrincipal AuthUser user, @PathVariable Long id) {
         return orders.cancel(user.id(), id);

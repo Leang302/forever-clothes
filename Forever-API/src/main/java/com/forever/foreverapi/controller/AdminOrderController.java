@@ -43,16 +43,17 @@ public class AdminOrderController {
                                            @RequestParam(required = false) Boolean paid,
                                            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                           @RequestParam(required = false) String coupon,
                                            @RequestParam(defaultValue = "newest") String sort,
                                            @RequestParam(defaultValue = "0") int page,
                                            @RequestParam(defaultValue = "20") int size) {
         return search.orders(q, status == null ? null : status.name(), paymentMethod == null ? null : paymentMethod.name(),
-                paid, from, to, sort, page, size);
+                paid, from, to, coupon, sort, page, size);
     }
 
-    @Operation(summary = "Update order status (DELIVERED marks COD orders as paid)")
+    @Operation(summary = "Update order status (DELIVERED marks COD orders as paid; CANCELLED needs a reason, emailed to the customer)")
     @PatchMapping("/{id}/status")
     public OrderResponse updateStatus(@PathVariable Long id, @Valid @RequestBody UpdateStatusRequest req) {
-        return orders.updateStatus(id, req.status());
+        return orders.updateStatus(id, req.status(), req.reason());
     }
 }

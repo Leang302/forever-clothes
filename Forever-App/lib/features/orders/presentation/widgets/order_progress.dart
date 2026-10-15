@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../domain/entities/order.dart';
 
-/// Five-step tracker: placed -> packing -> shipped -> out for delivery -> delivered.
+/// Three-step tracker: placed -> shipped -> delivered.
 class OrderProgress extends StatelessWidget {
   const OrderProgress({super.key, required this.status});
 
@@ -11,9 +11,7 @@ class OrderProgress extends StatelessWidget {
 
   static const _steps = [
     OrderStatus.orderPlaced,
-    OrderStatus.packing,
     OrderStatus.shipped,
-    OrderStatus.outForDelivery,
     OrderStatus.delivered,
   ];
 

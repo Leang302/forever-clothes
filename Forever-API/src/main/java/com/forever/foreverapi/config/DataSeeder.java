@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -31,14 +32,16 @@ public class DataSeeder implements ApplicationRunner {
     private final ProductRepository products;
     private final StorageService storage;
     private final JsonMapper json;
+    private final JdbcClient db;
 
     public DataSeeder(AppProperties props, AuthService auth, ProductRepository products, StorageService storage,
-                      JsonMapper json) {
+                      JsonMapper json, JdbcClient db) {
         this.props = props;
         this.auth = auth;
         this.products = products;
         this.storage = storage;
         this.json = json;
+        this.db = db;
     }
 
     record SeedProduct(String name, String description, BigDecimal price, String category, String subCategory,
@@ -82,6 +85,13 @@ public class DataSeeder implements ApplicationRunner {
             batch.add(p);
         }
         products.saveAll(batch); // one transaction: all or nothing
+        // V3 backfills stock and categories from existing products, but on a fresh database it runs before
+        // this seeder, so repeat that backfill here.
+        db.sql("insert into product_inventory(product_id,size,stock) select product_id,size,20 from product_sizes"
+                + " on conflict do nothing").update();
+        db.sql("insert into categories(name) select distinct category from products on conflict do nothing").update();
+        db.sql("insert into sub_categories(category_id,name) select distinct c.id, p.sub_category from products p"
+                + " join categories c on c.name = p.category on conflict do nothing").update();
         log.info("Seeded {} products and {} images into MinIO", items.size(), uploaded.size());
     }
 

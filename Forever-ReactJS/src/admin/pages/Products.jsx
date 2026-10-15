@@ -1,26 +1,53 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../api/client";
 import useApi from "../../components/useApi";
-import { Card, Empty, ErrorText, Loading, MultiSelect, PageTitle, Pagination, SearchInput, Segmented, SortTh } from "../components/ui";
+import { Card, ClearFilters, Dropdown, Empty, ErrorText, Loading, MultiSelect, PageTitle, Pagination, SearchInput, Segmented, SortTh } from "../components/ui";
 import { money } from "../format";
-import { useDebounced, usePage, useSort } from "../table";
+import { usePage, useUrlFilters, useUrlSearch } from "../table";
+import { useOnProductSaved, useOpenProduct } from "../productDrawer";
 
 const PAGE_SIZE = 10;
 const LOW_STOCK = 5;
 
-// Table sort state -> API `sort` value.
+// Table sort state <-> API `sort` value (also the `sort` URL param).
 const toApiSort = ({ key, dir }) => (key === 'date' ? (dir === 'desc' ? 'newest' : 'oldest') : `${key}_${dir}`);
+const SORTS = [
+  ['newest', 'Newest first'],
+  ['oldest', 'Oldest first'],
+  ['name_asc', 'Name A–Z'],
+  ['name_desc', 'Name Z–A'],
+  ['price_asc', 'Price: low to high'],
+  ['price_desc', 'Price: high to low'],
+  ['stock_asc', 'Stock: low to high'],
+  ['stock_desc', 'Stock: high to low'],
+];
+const fromApiSort = (value) => {
+  const v = SORTS.some(([s]) => s === value) ? value : 'newest';
+  if (v === 'newest' || v === 'oldest') return { key: 'date', dir: v === 'newest' ? 'desc' : 'asc' };
+  const i = v.lastIndexOf('_');
+  return { key: v.slice(0, i), dir: v.slice(i + 1) };
+};
+
+// URL query params for the filters; `category` is a comma-separated list.
+const FILTER_DEFAULTS = { q: '', category: '', visibility: 'all', sort: 'newest' };
 
 const Products = () => {
-  const navigate = useNavigate();
-  const [search, setSearch] = useState('');
-  const debounced = useDebounced(search);
-  const [categories, setCategories] = useState([]);
-  const [visibility, setVisibility] = useState('all');
-  const [sort, onSort, setSort] = useSort('date', 'desc', (key) => (key === 'name' ? 'asc' : 'desc'));
+  const openProduct = useOpenProduct();
+  const [filters, setFilters] = useUrlFilters(FILTER_DEFAULTS);
+  const [search, setSearch] = useUrlSearch(filters, setFilters);
+  const debounced = filters.q;
+  const categories = filters.category ? filters.category.split(',') : [];
+  const setCategories = (list) => setFilters({ category: list.join(',') });
+  const { visibility } = filters;
+  const setVisibility = (v) => setFilters({ visibility: v });
+  const sort = fromApiSort(filters.sort);
+  const setSort = (s) => setFilters({ sort: toApiSort(s) });
+  const onSort = (key) =>
+    setSort(sort.key === key ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' });
   const [version, setVersion] = useState(0);
+  useOnProductSaved(useCallback(() => setVersion((v) => v + 1), []));
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [stock, setStock] = useState({});
 
@@ -48,7 +75,7 @@ const Products = () => {
   }, [version]);
 
   // Any filter change goes back to the first page.
-  const [page, setPage] = usePage(JSON.stringify([debounced, categories, visibility, sort]));
+  const [page, setPage] = usePage(JSON.stringify([debounced, filters.category, visibility, filters.sort]));
 
   const { data, loading, error } = useApi(
     () =>
@@ -60,7 +87,7 @@ const Products = () => {
         page,
         size: PAGE_SIZE,
       }),
-    [debounced, categories, visibility, sort, page, version],
+    [debounced, filters.category, visibility, filters.sort, page, version],
   );
 
   const toggle = async (p) => {
@@ -74,19 +101,18 @@ const Products = () => {
   };
 
   const items = data?.content || [];
-  const filtered = debounced || categories.length || visibility !== 'all';
+  const filtered = search || categories.length || visibility !== 'all';
   const clearFilters = () => {
     setSearch('');
-    setCategories([]);
-    setVisibility('all');
+    setFilters({ q: '', category: '', visibility: 'all' });
   };
 
   return (
     <>
       <PageTitle title="Products">
-        <Link to="/admin/products/new" className="bg-black text-white text-sm px-4 py-2 rounded">
+        <button type="button" onClick={() => openProduct('new')} className="bg-black text-white text-sm px-4 py-2 rounded">
           + Add product
-        </Link>
+        </button>
       </PageTitle>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -101,34 +127,15 @@ const Products = () => {
             ['hidden', 'Hidden'],
           ]}
         />
-        <select
+        <Dropdown
           value={toApiSort(sort)}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === 'newest' || v === 'oldest') setSort({ key: 'date', dir: v === 'newest' ? 'desc' : 'asc' });
-            else {
-              const i = v.lastIndexOf('_');
-              setSort({ key: v.slice(0, i), dir: v.slice(i + 1) });
-            }
-          }}
+          onChange={(v) => setFilters({ sort: v })}
           aria-label="Sort products"
-          className="border border-gray-300 rounded px-3 py-2 text-sm bg-white"
-        >
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first</option>
-          <option value="name_asc">Name A–Z</option>
-          <option value="name_desc">Name Z–A</option>
-          <option value="price_asc">Price: low to high</option>
-          <option value="price_desc">Price: high to low</option>
-          <option value="stock_asc">Stock: low to high</option>
-          <option value="stock_desc">Stock: high to low</option>
-        </select>
+          options={SORTS}
+          className="w-auto min-w-[11rem] h-[38px]"
+        />
         {data && <span className="text-sm text-gray-500">{data.totalElements} products</span>}
-        {filtered && (
-          <button onClick={clearFilters} className="text-sm text-gray-500 underline hover:text-black">
-            Clear filters
-          </button>
-        )}
+        {filtered && <ClearFilters onClick={clearFilters} count={[search, categories.length, visibility !== 'all'].filter(Boolean).length} />}
       </div>
 
       <Card className="overflow-x-auto">
@@ -197,7 +204,7 @@ const Products = () => {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => navigate(`/admin/products/${p.id}/edit`)}
+                        onClick={() => openProduct(p.id)}
                         className="border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100 bg-white"
                       >
                         Edit
@@ -211,7 +218,7 @@ const Products = () => {
         )}
       </Card>
 
-      <Pagination page={page} totalPages={data?.totalPages || 0} onChange={setPage} />
+      <Pagination page={page} totalPages={data?.totalPages || 0} total={data?.totalElements} pageSize={data?.size} onChange={setPage} />
     </>
   );
 };

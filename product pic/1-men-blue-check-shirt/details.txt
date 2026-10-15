@@ -1,0 +1,9 @@
+Name:         Men Blue Check Shirt
+Description:  Long-sleeve cotton shirt in a blue, black and white check with a classic collar and button front. Smart enough for the office, relaxed enough for weekends.
+Category:     Men
+Sub category: Topwear
+Price ($):    32
+Sizes:        S, M, L, XL
+Bestseller:   No
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

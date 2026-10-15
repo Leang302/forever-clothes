@@ -33,7 +33,9 @@ public final class OrderDtos {
             @NotNull @Valid AddressDto address,
             @NotNull PaymentMethod paymentMethod,
             String couponCode,
-            String shippingMethod) {
+            String shippingMethod,
+            // Cart lines to buy; empty or missing means the whole cart. Unselected lines stay in the cart.
+            List<Long> cartItemIds) {
     }
 
     public record OrderItemResponse(Long productId, String name, String image, BigDecimal price, String size,
@@ -55,9 +57,13 @@ public final class OrderDtos {
             List<OrderItemResponse> items,
             Long userId,
             Instant createdAt,
-            List<OrderStatus> nextStatuses) { // statuses an admin may move this order to next
+            List<OrderStatus> nextStatuses, // statuses an admin may move this order to next
+            String cancelReason,
+            String cancelledBy) { // ADMIN or CUSTOMER when cancelled
     }
 
-    public record UpdateStatusRequest(@NotNull OrderStatus status) {
+    /** {@code reason} is required when cancelling; it is emailed to the customer and shown on their order. */
+    public record UpdateStatusRequest(@NotNull OrderStatus status,
+                                      @Size(max = 500, message = "Reason must be 500 characters or fewer") String reason) {
     }
 }

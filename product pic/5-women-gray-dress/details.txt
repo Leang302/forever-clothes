@@ -1,0 +1,9 @@
+Name:         Women Sage Button-Front Midi Dress
+Description:  Sleeveless midi dress in soft sage with a full button front and tie waist. Light, breathable and easy to dress up or down.
+Category:     Women
+Sub category: Topwear
+Price ($):    49
+Sizes:        S, M, L, XL
+Bestseller:   No
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

@@ -71,7 +71,7 @@ public class AdminSearchServiceImpl implements AdminSearchService {
 
     @Transactional(readOnly = true)
     public PageResponse<OrderResponse> orders(String q, String status, String paymentMethod, Boolean paid,
-                                              LocalDate from, LocalDate to, String sort, int page, int size) {
+                                              LocalDate from, LocalDate to, String coupon, String sort, int page, int size) {
         List<String> where = new ArrayList<>();
         Map<String, Object> params = new HashMap<>();
         if (q != null && !q.isBlank()) {
@@ -102,6 +102,10 @@ public class AdminSearchServiceImpl implements AdminSearchService {
         if (to != null) {
             where.add("o.created_at < :to");
             params.put("to", Timestamp.from(to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()));
+        }
+        if (coupon != null && !coupon.isBlank()) {
+            where.add("upper(o.coupon_code) = :coupon");
+            params.put("coupon", coupon.trim().toUpperCase());
         }
         String base = " from orders o join users u on u.id = o.user_id" + whereClause(where);
         return page(base, ORDER_SORTS.getOrDefault(sort, ORDER_SORTS.get("newest")), "o.id", params, page, size,

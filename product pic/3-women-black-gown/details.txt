@@ -1,0 +1,9 @@
+Name:         Women Floral Off-Shoulder Gown
+Description:  Floor-length black gown with a bold rose print and an elegant off-shoulder neckline. Made for evening events and special occasions.
+Category:     Women
+Sub category: Topwear
+Price ($):    129
+Sizes:        S, M, L
+Bestseller:   Yes
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

@@ -73,4 +73,34 @@ public class EmailService {
             log.warn("Order {} saved but confirmation email to {} failed", orderId, to, e);
         }
     }
+
+    /** Tells the customer the store cancelled their order and why. A failed send is logged, not thrown. */
+    public void sendOrderCancelled(String to, String customerName, Long orderId, BigDecimal total, String reason) {
+        String subject = "Forever order #" + orderId + " was cancelled";
+        String html = """
+                <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#222">
+                  <h2 style="letter-spacing:2px">FOREVER<span style="color:#e60023">.</span></h2>
+                  <p>Hi %s,</p>
+                  <p>We're sorry, but we had to cancel your order <strong>#%d</strong> (total <strong>$%s</strong>).</p>
+                  <p style="margin:20px 0;padding:12px 16px;background:#f6f6f6;border-left:3px solid #222">
+                    <strong>Reason:</strong> %s
+                  </p>
+                  <p style="color:#666">You have not been charged for this order. If you have any questions, just reply to this email.</p>
+                </div>""".formatted(escape(customerName), orderId, total, escape(reason));
+        String text = "Hi " + customerName + ",\n\nWe had to cancel your order #" + orderId + " (total $" + total + ").\n\n"
+                + "Reason: " + reason + "\n\nYou have not been charged for this order.";
+        try {
+            MimeMessage msg = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
+            helper.setFrom(from); helper.setTo(to); helper.setSubject(subject);
+            helper.setText(text, html);
+            mailSender.send(msg);
+        } catch (Exception e) {
+            log.warn("Order {} cancelled but the email to {} failed", orderId, to, e);
+        }
+    }
+
+    private static String escape(String s) {
+        return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+    }
 }

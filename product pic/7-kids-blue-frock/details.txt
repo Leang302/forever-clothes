@@ -1,0 +1,9 @@
+Name:         Girls Blue Polka Dot Frock
+Description:  Twirly cap-sleeve frock with a playful blue polka-dot print and a full flared skirt. Soft and comfy for parties and play.
+Category:     Kids
+Sub category: Topwear
+Price ($):    25
+Sizes:        S, M, L
+Bestseller:   No
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

@@ -6,7 +6,7 @@ import { ShopContext } from '../context/ShopContext';
 const Navbar = () => {
    const [visible, setVisible] = useState(false);
 
-   const {setShowSearch,showSearch,getCartCount,user,isAdmin,logout,navigate} = useContext(ShopContext);
+   const {setShowSearch,showSearch,getCartCount,user,isAdmin,requestLogout,navigate} = useContext(ShopContext);
 
 
    return (
@@ -49,7 +49,7 @@ const Navbar = () => {
                                  <p onClick={() => navigate('/order')} className='cursor-pointer hover:text-black'>Orders</p>
                               </>
                            )}
-                           <p onClick={logout} className='cursor-pointer hover:text-black'>Logout</p>
+                           <p onClick={requestLogout} className='cursor-pointer hover:text-black'>Logout</p>
                            {/* Only admins get this button; everyone else never sees that an admin panel exists. */}
                            {isAdmin && (
                               <button onClick={() => navigate('/admin')} className='mt-1 bg-black text-white text-xs py-2 px-3 rounded'>Admin panel</button>

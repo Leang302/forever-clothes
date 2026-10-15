@@ -1,0 +1,9 @@
+Name:         Men Red Buffalo Plaid Shirt
+Description:  Classic red and black buffalo plaid shirt with long sleeves and a button-down front. Warm brushed cotton that layers well over a tee.
+Category:     Men
+Sub category: Winterwear
+Price ($):    38
+Sizes:        M, L, XL, XXL
+Bestseller:   Yes
+Images:       upload all 4 (1.png - 4.png)
+Photos:       DummyJSON product images (free test data) - https://dummyjson.com

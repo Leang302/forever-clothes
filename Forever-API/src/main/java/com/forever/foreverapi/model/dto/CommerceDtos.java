@@ -19,7 +19,15 @@ public final class CommerceDtos {
     public record InventoryRow(Long productId, String productName, String size, int stock, boolean lowStock) {}
     public record StockRequest(@NotNull @Min(0) Integer stock) {}
     public record CategoryRow(Long id, String name, boolean active, long productCount, long activeProductCount) {}
-    public record NameRequest(@NotBlank String name) {}
+    public record NameRequest(@NotBlank(message = "Category name is required") String name) {}
+    /**
+     * Moves products from one category to {@code targetId}, optionally into its sub-category {@code targetSubCategoryId}
+     * (null = keep their own); {@code productIds} null or empty = all of them.
+     */
+    public record MoveProductsRequest(@NotNull(message = "Choose a category to move the products to") Long targetId,
+                                      Long targetSubCategoryId, List<Long> productIds) {}
+    public record MoveProductsResult(int moved, String target, String subCategory) {}
+    public record SubCategoryRow(Long id, Long categoryId, String name, long productCount) {}
 
     /**
      * Admin view of a coupon. {@code status} is one of ACTIVE, SCHEDULED, EXPIRED, USED_UP, INACTIVE.
