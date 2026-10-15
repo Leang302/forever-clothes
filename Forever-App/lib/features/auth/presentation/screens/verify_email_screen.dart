@@ -43,7 +43,14 @@ class _VerifyEmailScreenState extends ConsumerState<VerifyEmailScreen> {
           .verifyEmail(widget.email, _otp.text);
       Haptics.success();
       // go_router does not redirect pushed screens, so leave explicitly (this also drops login/register below).
-      if (mounted) context.go(widget.redirect ?? Routes.home);
+      if (mounted) {
+        final user = ref.read(authControllerProvider).value;
+        context.go(
+          user?.isAdmin == true
+              ? Routes.admin
+              : (widget.redirect ?? Routes.home),
+        );
+      }
     } catch (e) {
       Haptics.error();
       _otp.clear();

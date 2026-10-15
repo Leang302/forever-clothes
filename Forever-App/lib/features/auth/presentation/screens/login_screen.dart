@@ -41,7 +41,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           .read(authControllerProvider.notifier)
           .login(_email.text, _password.text);
       // go_router does not redirect pushed screens, so leave explicitly.
-      if (mounted) context.go(widget.redirect ?? Routes.home);
+      if (mounted) {
+        final user = ref.read(authControllerProvider).value;
+        context.go(
+          user?.isAdmin == true
+              ? Routes.admin
+              : (widget.redirect ?? Routes.home),
+        );
+      }
     } on AppException catch (e) {
       Haptics.error();
       if (!mounted) return;

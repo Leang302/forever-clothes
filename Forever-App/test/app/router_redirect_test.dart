@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forever_app/app/router/app_router.dart';
+import 'package:forever_app/core/network/network_providers.dart';
 import 'package:forever_app/features/auth/domain/entities/app_user.dart';
 import 'package:forever_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:forever_app/features/auth/presentation/providers/auth_providers.dart';
@@ -26,6 +28,12 @@ class MockCatalogRepository extends Mock implements CatalogRepository {}
 class MockOrderRepository extends Mock implements OrderRepository {}
 
 const _user = AppUser(id: 1, name: 'Tola', email: 'tola@example.com');
+const _admin = AppUser(
+  id: 2,
+  name: 'Store Admin',
+  email: 'admin@example.com',
+  isAdmin: true,
+);
 
 void main() {
   late MockAuthRepository auth;
@@ -38,6 +46,36 @@ void main() {
     final cart = MockCartRepository();
     final catalog = MockCatalogRepository();
     final orders = MockOrderRepository();
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                data: options.path == '/api/admin/orders'
+                    ? {'content': [], 'page': 0, 'totalPages': 0, 'last': true}
+                    : options.path == '/api/admin/notifications'
+                    ? {'items': [], 'unreadCount': 0}
+                    : options.path == '/api/admin/analytics'
+                    ? {
+                        'topProducts': [],
+                        'revenueByDay': [],
+                        'lowStockCount': 0,
+                      }
+                    : {
+                        'activeProducts': 7,
+                        'hiddenProducts': 1,
+                        'customers': 4,
+                        'totalOrders': 3,
+                        'revenue': 120,
+                        'ordersByStatus': {'ORDER_PLACED': 3},
+                      },
+              ),
+            );
+          },
+        ),
+      );
 
     when(() => auth.restoreSession()).thenAnswer((_) async => null);
     when(() => cart.getCart()).thenAnswer((_) async => Cart.empty);
@@ -63,6 +101,7 @@ void main() {
         cartRepositoryProvider.overrideWithValue(cart),
         catalogRepositoryProvider.overrideWithValue(catalog),
         orderRepositoryProvider.overrideWithValue(orders),
+        dioProvider.overrideWithValue(dio),
       ],
     );
     addTearDown(container.dispose);
@@ -154,6 +193,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(router.state.uri.path, '/');
+  });
+
+  testWidgets('an admin account opens the mobile dashboard', (tester) async {
+    when(() => auth.restoreSession()).thenAnswer((_) async => _admin);
+    await pumpApp(tester);
+    final router = container.read(appRouterProvider);
+
+    expect(router.state.uri.path, '/admin');
+    expect(find.text('FOREVER  /  ADMIN'), findsOneWidget);
+    expect(find.text('Store overview'), findsOneWidget);
+    expect(find.text('Products'), findsWidgets);
+  });
+
+  testWidgets('a customer cannot open an admin section', (tester) async {
+    when(() => auth.restoreSession()).thenAnswer((_) async => _user);
+    await pumpApp(tester);
+    final router = container.read(appRouterProvider);
+
+    router.go('/admin/products');
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, '/');
+  });
+
+  testWidgets('admin order deep link keeps its search term', (tester) async {
+    when(() => auth.restoreSession()).thenAnswer((_) async => _admin);
+    await pumpApp(tester);
+    final router = container.read(appRouterProvider);
+
+    router.go('/admin/orders?q=%2312');
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, '/admin/orders');
+    expect(find.text('#12'), findsOneWidget);
   });
 }
 

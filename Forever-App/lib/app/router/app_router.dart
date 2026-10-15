@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../features/admin/presentation/admin_screen.dart';
 import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
@@ -37,6 +38,19 @@ GoRouter appRouter(Ref ref) {
       final auth = ref.read(authControllerProvider);
       final user = auth.value;
       final path = state.uri.path;
+
+      if (user?.isAdmin == true &&
+          !path.startsWith(Routes.admin) &&
+          !Routes.authFlow.contains(path)) {
+        return Routes.admin;
+      }
+      if (path.startsWith(Routes.admin) &&
+          user?.isAdmin != true &&
+          !auth.isLoading) {
+        return user == null
+            ? Routes.loginWithRedirect(Routes.admin)
+            : Routes.home;
+      }
 
       if (user == null && !auth.isLoading && Routes.protected.contains(path)) {
         return Routes.loginWithRedirect(state.uri.toString());
@@ -115,6 +129,20 @@ GoRouter appRouter(Ref ref) {
       ),
       GoRoute(path: Routes.about, builder: (_, _) => const AboutScreen()),
       GoRoute(path: Routes.contact, builder: (_, _) => const ContactScreen()),
+      GoRoute(path: Routes.admin, builder: (_, _) => const AdminScreen()),
+      GoRoute(
+        path: Routes.adminSection,
+        builder: (_, state) => AdminScreen(
+          section: state.pathParameters['section'],
+          initialQuery: state.uri.queryParameters['q'],
+          initialStatus: state.uri.queryParameters['status'],
+          initialActive: switch (state.uri.queryParameters['visibility']) {
+            'visible' => true,
+            'hidden' => false,
+            _ => null,
+          },
+        ),
+      ),
     ],
     errorBuilder: (context, state) =>
         Scaffold(body: Center(child: Text('Page not found: ${state.uri}'))),

@@ -3,6 +3,8 @@ abstract final class Routes {
   static const collection = '/collection';
   static const cart = '/cart';
   static const profile = '/profile';
+  static const admin = '/admin';
+  static const adminSection = '/admin/:section';
 
   static const product = '/product/:id';
   static String productPath(int id) => '/product/$id';
