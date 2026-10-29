@@ -13,6 +13,7 @@ import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../cart/presentation/widgets/cart_summary.dart';
 import '../../domain/entities/order.dart';
 import '../providers/order_providers.dart';
+import '../widgets/khqr_payment_sheet.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -72,23 +73,34 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
     setState(() => _busy = true);
+    final address = ShippingAddress(
+      firstName: _firstName.text.trim(),
+      lastName: _lastName.text.trim(),
+      email: _email.text.trim(),
+      street: _street.text.trim(),
+      city: _city.text.trim(),
+      state: _state.text.trim(),
+      zipcode: _zip.text.trim(),
+      country: _country.text.trim(),
+      phone: _phone.text.trim(),
+    );
+    final orders = ref.read(ordersControllerProvider.notifier);
     try {
-      await ref
-          .read(ordersControllerProvider.notifier)
-          .place(
-            paymentMethod: _method,
-            address: ShippingAddress(
-              firstName: _firstName.text.trim(),
-              lastName: _lastName.text.trim(),
-              email: _email.text.trim(),
-              street: _street.text.trim(),
-              city: _city.text.trim(),
-              state: _state.text.trim(),
-              zipcode: _zip.text.trim(),
-              country: _country.text.trim(),
-              phone: _phone.text.trim(),
-            ),
-          );
+      if (_method == PaymentMethod.khqr) {
+        final payment = await orders.startKhqr(address);
+        if (!mounted) return;
+        if (!await showKhqrPaymentSheet(context, payment)) {
+          if (mounted) {
+            AppSnackbar.info(
+              context,
+              'Payment not completed. Your items are back in your cart',
+            );
+          }
+          return;
+        }
+      } else {
+        await orders.place(paymentMethod: _method, address: address);
+      }
       Haptics.success();
       if (!mounted) return;
       context.go(Routes.orders);
@@ -206,6 +218,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 icon: Icons.payments_outlined,
                 selected: _method == PaymentMethod.cod,
                 onTap: () => setState(() => _method = PaymentMethod.cod),
+              ),
+              const SizedBox(height: 10),
+              _PaymentTile(
+                title: 'KHQR',
+                subtitle: 'Scan with Bakong or any Cambodian banking app',
+                icon: Icons.qr_code_2_rounded,
+                selected: _method == PaymentMethod.khqr,
+                onTap: () => setState(() => _method = PaymentMethod.khqr),
               ),
               const SizedBox(height: 10),
               const _PaymentTile(

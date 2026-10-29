@@ -12,7 +12,7 @@ public interface AdminSearchService {
 
     /**
      * @param q             order id (with or without #), or part of customer name / email / phone
-     * @param paymentMethod COD or PAYWAY
+     * @param paymentMethod COD or KHQR
      * @param from          first day (inclusive, UTC)
      * @param to            last day (inclusive, UTC)
      * @param sort          newest | oldest | total_desc | total_asc | status

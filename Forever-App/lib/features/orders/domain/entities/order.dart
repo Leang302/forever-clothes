@@ -22,6 +22,7 @@ enum OrderStatus {
 
 enum PaymentMethod {
   cod('COD', 'Cash on delivery'),
+  khqr('KHQR', 'KHQR'),
   stripe('STRIPE', 'Stripe'),
   razorpay('RAZORPAY', 'Razorpay');
 

@@ -65,14 +65,13 @@ app:
     admin-password: ${ADMIN_PASSWORD:Admin@12345}
   cors:
     allowed-origin-patterns: "*"
-  payway:
-    merchant-id: ${PAYWAY_MERCHANT_ID:ec479432}
-    api-key: ${PAYWAY_API_KEY:}
-    purchase-url: ${PAYWAY_PURCHASE_URL:https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase}
-    check-url: ${PAYWAY_CHECK_URL:https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/check-transaction-2}
-    callback-url: ${PAYWAY_CALLBACK_URL:}
-    success-url: ${PAYWAY_SUCCESS_URL:http://localhost:5173/order}
-    cancel-url: ${PAYWAY_CANCEL_URL:http://localhost:5173/place-order}
+  khqr:
+    account-id: ${KHQR_ACCOUNT_ID:}            # Bakong account that receives payments, e.g. forever_shop@aclb
+    merchant-name: ${KHQR_MERCHANT_NAME:Forever}
+    merchant-city: ${KHQR_MERCHANT_CITY:Phnom Penh}
+    api-url: ${KHQR_API_URL:https://api-bakong.nbc.gov.kh}
+    api-token: ${KHQR_API_TOKEN:}              # from https://api-bakong.nbc.gov.kh/register
+    qr-ttl: 10m
 
 springdoc:
   swagger-ui:

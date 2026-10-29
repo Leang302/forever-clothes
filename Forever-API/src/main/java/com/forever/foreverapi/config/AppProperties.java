@@ -7,7 +7,7 @@ import java.time.Duration;
 
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(Jwt jwt, Otp otp, Login login, Mail mail, Minio minio, Shop shop, Seed seed, Cors cors,
-                            Payway payway) {
+                            Khqr khqr) {
 
     public record Jwt(String secret, Duration accessTokenTtl, Duration refreshTokenTtl) {
     }
@@ -34,7 +34,8 @@ public record AppProperties(Jwt jwt, Otp otp, Login login, Mail mail, Minio mini
     public record Cors(String allowedOriginPatterns) {
     }
 
-    public record Payway(String merchantId, String apiKey, String purchaseUrl, String checkUrl, String callbackUrl,
-                         String successUrl, String cancelUrl) {
+    /** Bakong KHQR: payments go to [accountId]; [apiToken] (Bakong Open API, renewed every 90 days) checks them. */
+    public record Khqr(String accountId, String merchantName, String merchantCity, String apiUrl, String apiToken,
+                       Duration qrTtl) {
     }
 }

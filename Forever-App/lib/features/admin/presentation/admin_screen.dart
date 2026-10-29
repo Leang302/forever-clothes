@@ -1054,11 +1054,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                         Wrap(
                           spacing: 8,
                           children: [
-                            for (final method in <String?>[
-                              null,
-                              'COD',
-                              'PAYWAY',
-                            ])
+                            for (final method in <String?>[null, 'COD', 'KHQR'])
                               ChoiceChip(
                                 label: Text(method ?? 'Any payment'),
                                 selected: _paymentMethod == method,
