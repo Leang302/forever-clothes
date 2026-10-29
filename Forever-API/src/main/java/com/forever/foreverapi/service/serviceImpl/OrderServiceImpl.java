@@ -254,6 +254,11 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    @Transactional
+    public void recordKhqrPayment(Long orderId, String md5) {
+        orders.findById(orderId).orElseThrow(() -> ApiException.notFound("Order not found")).setKhqrMd5(md5);
+    }
+
     private static org.springframework.data.domain.Pageable pageable(int page, int size) {
         return PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), NEWEST);
     }

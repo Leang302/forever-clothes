@@ -73,6 +73,10 @@ public class Order {
     @Column(name = "cancelled_by")
     private String cancelledBy;
 
+    /** MD5 of the KHQR string the customer was asked to scan; Bakong looks the payment up by it. */
+    @Column(name = "khqr_md5")
+    private String khqrMd5;
+
     @Embedded
     private ShippingAddress address;
 

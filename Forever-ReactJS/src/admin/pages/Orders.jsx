@@ -11,7 +11,7 @@ import { validate, z } from "@/lib/validation";
 const PAGE_SIZE = 10;
 const PAYMENT_METHODS = [
   ['COD', 'Cash on delivery'],
-  ['PAYWAY', 'ABA PayWay'],
+  ['KHQR', 'KHQR (Bakong)'],
 ];
 const paymentLabel = (value) => PAYMENT_METHODS.find(([v]) => v === value)?.[1] || value;
 const statusLabel = (value) => STATUSES.find(([v]) => v === value)?.[1] || value;

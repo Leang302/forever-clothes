@@ -36,6 +36,8 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
     implementation("io.minio:minio:$minioVersion")
     implementation("com.squareup.okhttp3:okhttp-jvm:5.3.2")
+    implementation("kh.gov.nbc.bakong_khqr:sdk-java:1.0.0.17")
+    implementation("com.google.zxing:core:3.5.4")
     implementation("io.jsonwebtoken:jjwt-api:$jjwtVersion")
     runtimeOnly("io.jsonwebtoken:jjwt-impl:$jjwtVersion")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:$jjwtVersion")

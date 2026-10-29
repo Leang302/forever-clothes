@@ -148,9 +148,10 @@ export const api = {
     request('/api/cart/items', { method: 'PUT', body: { productId, size, quantity } }),
   // orders
   placeOrder: (b) => post('/api/orders', b),
-  paywayCheckout: (b) => post('/api/payway/checkout', b),
-  verifyPayway: (orderId, transactionId) => post('/api/payway/verify', { orderId, transactionId }),
-  abortPayway: (orderId) => post(`/api/payway/${orderId}/abort`),
+  khqrCheckout: (b) => post('/api/khqr/checkout', b),
+  // Resolve { paid, status } where status is PENDING, PAID or CANCELLED.
+  verifyKhqr: (orderId) => post(`/api/khqr/${orderId}/verify`),
+  cancelKhqr: (orderId) => post(`/api/khqr/${orderId}/cancel`),
   checkoutOptions: () => request('/api/checkout/options'),
   // Preview a coupon before ordering: resolves { code, description, discountType, discount, summary } or throws with the reason.
   checkCoupon: (code, subtotal) => post('/api/checkout/coupon', { code, subtotal }),

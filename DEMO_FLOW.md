@@ -130,34 +130,32 @@ Switch to the admin window to close the loop.
    - **Inventory** shows the reduced stock for the ordered size.
    - **Customers** shows the new customer and their order history.
 
-## 5. ABA PayWay sandbox flow (optional)
+## 5. KHQR (Bakong) payment flow (optional)
 
-The checkout offers **ABA PayWay** as the second payment option. Before demonstrating it, configure fresh sandbox credentials in `Forever-API/.env.local`:
+The checkout offers **KHQR** as the second payment option. The customer scans the code with Bakong or any Cambodian banking app (ABA, ACLEDA, Wing…). Before demonstrating it, configure `Forever-API/.env.local`:
 
 ```properties
-PAYWAY_MERCHANT_ID=your_sandbox_merchant_id
-PAYWAY_API_KEY=your_new_sandbox_api_key
-PAYWAY_CALLBACK_URL=https://your-whitelisted-domain/api/payway/callback
-PAYWAY_SUCCESS_URL=http://localhost:5173/order
-PAYWAY_CANCEL_URL=http://localhost:5173/place-order
+KHQR_ACCOUNT_ID=your_bakong_account@bank
+KHQR_MERCHANT_NAME=Forever
+KHQR_MERCHANT_CITY=Phnom Penh
+KHQR_API_TOKEN=your_bakong_open_api_token
 ```
 
-Do not commit `.env.local`, API keys, or RSA private keys.
-
-PayWay requires the callback domain or IP address to be whitelisted. A public HTTPS URL or tunnel approved in the PayWay merchant settings is required; PayWay cannot send a callback to `localhost`.
+- `KHQR_ACCOUNT_ID` is the Bakong account that receives the money (shown in the Bakong app profile, e.g. `name@aclb`).
+- `KHQR_API_TOKEN` comes from registering at https://api-bakong.nbc.gov.kh/register. It expires every 90 days; renew it at the same site.
+- The Bakong Open API only accepts requests from Cambodian IP addresses, so the API must run in Cambodia (or behind a Cambodian proxy).
+- Do not commit `.env.local` or the API token.
 
 Demo steps:
 
-1. Select **ABA PayWay** during checkout.
-2. Click **Continue to ABA PayWay**.
-3. The backend creates a pending order and signs the hosted checkout request.
-4. The browser opens ABA PayWay's sandbox checkout.
-5. Complete the sandbox payment.
-6. PayWay sends a signed callback to the backend.
-7. The backend verifies the callback, marks the order as paid, and changes its status from `PAYMENT_PENDING` to `ORDER_PLACED`.
-8. The customer receives an order-confirmation email.
+1. Select **KHQR** during checkout and click **Pay with KHQR**.
+2. The backend creates a `PAYMENT_PENDING` order and returns a dynamic KHQR for the exact total, valid for 10 minutes.
+3. Scan the code with a banking app and pay (a small total such as $0.01 keeps the demo cheap).
+4. Bakong has no callback, so the client asks the backend every 3 seconds; the backend looks the payment up by the QR's MD5 (`check_transaction_by_md5`).
+5. Once it is found, the order is marked paid and moves to `ORDER_PLACED`, and the customer receives the confirmation email.
+6. Cancelling, or letting the code expire, cancels the order and puts the items back in the cart, unless Bakong shows the payment already went through.
 
-If the sandbox credentials or callback URL are not configured, the API returns `PAYWAY_NOT_CONFIGURED` instead of exposing secrets or creating an unsigned request.
+If the account ID or token is missing, the API returns `KHQR_NOT_CONFIGURED`.
 
 ## 6. API demonstration (optional)
 

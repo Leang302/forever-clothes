@@ -16,4 +16,5 @@ public interface OrderService {
     OrderResponse updateStatus(Long id, OrderStatus status, String reason);
     PageResponse<OrderResponse> forCustomer(Long userId, int page, int size);
     void confirmOnlinePayment(Long orderId);
+    void recordKhqrPayment(Long orderId, String md5);
 }

@@ -1,8 +1,9 @@
 //PlaceOrder.jsx
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { useSearchParams } from "react-router-dom";
 import CartTotal from "../components/CartTotal";
+import KhqrPayment from "../components/KhqrPayment";
 import Title from "../components/Title";
 import { ShopContext } from "../context/ShopContext";
 import { api } from "../api/client";
@@ -44,6 +45,9 @@ const PlaceOrder = () => {
   // Result of checking the coupon against the cart: { ok, text } shown under the input.
   const [couponCheck, setCouponCheck] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('COD');
+  // The pending KHQR order whose code is on screen.
+  const [khqrPayment, setKhqrPayment] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [saveAddress, setSaveAddress] = useState(false);
@@ -109,7 +113,12 @@ const PlaceOrder = () => {
         setSelectedAddressId(saved.id);
         setSaveAddress(false);
       }
-      const request = { address: form, paymentMethod: 'COD', shippingMethod, couponCode: couponCode.trim() || null, cartItemIds: pickedIds.length ? checkoutItems.map((item) => item.id) : null };
+      const request = { address: form, paymentMethod, shippingMethod, couponCode: couponCode.trim() || null, cartItemIds: pickedIds.length ? checkoutItems.map((item) => item.id) : null };
+      if (paymentMethod === 'KHQR') {
+        setKhqrPayment(await api.khqrCheckout(request));
+        await loadCart(); // the order took its lines out of the cart; cancelling puts them back
+        return;
+      }
       const order = await api.placeOrder(request);
       await loadCart();
       toast.success('Order placed successfully');
@@ -124,6 +133,21 @@ const PlaceOrder = () => {
       setBusy(false);
     }
   };
+
+  const onKhqrPaid = useCallback(() => {
+    const orderId = khqrPayment.orderId;
+    setKhqrPayment(null);
+    toast.success('Payment received');
+    navigate(`/order-confirmation/${orderId}`);
+  }, [khqrPayment, navigate]);
+
+  const onKhqrClosed = useCallback((reason) => {
+    setKhqrPayment(null);
+    loadCart();
+    toast.info(reason === 'expired'
+      ? 'The KHQR code expired. Your items are back in your cart'
+      : 'Payment cancelled. Your items are back in your cart');
+  }, [loadCart]);
 
   const applyCoupon = async () => {
     const code = couponCode.trim();
@@ -250,18 +274,25 @@ const PlaceOrder = () => {
           </div>
           <Title text1={"payment"} text2={'method'}/>
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 rounded border border-black bg-gray-50 p-3 text-left">
-              <p className="min-w-3.5 h-3.5 border rounded-full bg-green-500"></p>
-              <span><b className="text-sm">Cash on Delivery</b><small className="block text-gray-500">Pay when your order arrives</small></span>
-            </div>
+            {[
+              ['COD', 'Cash on Delivery', 'Pay when your order arrives'],
+              ['KHQR', 'KHQR', 'Scan with Bakong or any Cambodian banking app'],
+            ].map(([value, name, hint]) => (
+              <button type="button" key={value} onClick={() => setPaymentMethod(value)} aria-pressed={paymentMethod === value}
+                className={`flex items-center gap-3 rounded border p-3 text-left ${paymentMethod === value ? 'border-black bg-gray-50' : ''}`}>
+                <p className={`min-w-3.5 h-3.5 border rounded-full ${paymentMethod === value ? 'bg-green-500' : ''}`}></p>
+                <span><b className="text-sm">{name}</b><small className="block text-gray-500">{hint}</small></span>
+              </button>
+            ))}
           </div>
           <div className="w-full text-end mt-8 ">
             <button type="submit" disabled={busy || checkoutItems.length === 0} className="uppercase text-sm bg-black text-white px-16 py-5 rounded disabled:bg-gray-400">
-              {busy ? 'Processing...' : 'Place order'}
+              {busy ? 'Processing...' : paymentMethod === 'KHQR' ? 'Pay with KHQR' : 'Place order'}
             </button>
           </div>
         </div>
       </div>
+      {khqrPayment && <KhqrPayment payment={khqrPayment} onPaid={onKhqrPaid} onClosed={onKhqrClosed} />}
     </form>
   );
 };
