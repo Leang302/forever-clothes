@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /tmp/deploy_forever)",
+      "Bash(cat)",
+      "Bash(chmod 600 /tmp/deploy_forever/id_rsa)",
+      "Bash(ssh:*)",
+      "Bash(docker --version)",
+      "Bash(docker info:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Bash(docker build:*)"
+    ]
+  }
+}

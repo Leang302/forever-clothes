@@ -35,6 +35,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(auth);
             });
         }
+        // EventSource (SSE) cannot send custom headers, so we also accept ?token= for those endpoints.
+        if (SecurityContextHolder.getContext().getAuthentication() == null) {
+            String tokenParam = request.getParameter("token");
+            if (tokenParam != null && !tokenParam.isBlank()) {
+                jwtService.parse(tokenParam).ifPresent(user -> {
+                    var auth = new UsernamePasswordAuthenticationToken(user, null,
+                            List.of(new SimpleGrantedAuthority("ROLE_" + user.role())));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                });
+            }
+        }
         chain.doFilter(request, response);
     }
 }

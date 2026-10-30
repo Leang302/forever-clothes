@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where rg:*)",
+      "Bash(winget install:*)",
+      "Bash(powershell -Command \"Get-Command rg -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(powershell -Command \"\\(Get-Item 'C:\\\\Users\\\\KimLeang\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\rg.exe'\\).Target\")",
+      "Read(//c/Users/KimLeang/**)",
+      "Bash(powershell:*)",
+      "Bash(mkdir -p /tmp/forever-deploy)",
+      "Bash(cat)",
+      "Bash(chmod 600 /tmp/forever-deploy/id_rsa)",
+      "Bash(./gradlew bootJar -x test)",
+      "Bash(docker build:*)",
+      "Bash(docker save:*)",
+      "Bash(gzip)",
+      "Bash(cp \"D:\\\\Setec\\\\year4 semester 1\\\\forever-clothes\\\\Forever-API\\\\docker-compose.prod.yml\" /tmp/forever-deploy/docker-compose.prod.yml)",
+      "Read(//tmp/**)",
+      "Bash(ssh -i /tmp/forever-deploy/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@52.76.201.170 'echo '\\\\''SSH OK'\\\\'' && uname -a && docker --version && docker compose version')",
+      "Bash(ssh:*)",
+      "Bash(scp -i /tmp/forever-deploy/id_rsa -o StrictHostKeyChecking=no /tmp/forever-deploy/forever-api.tar.gz /tmp/forever-deploy/docker-compose.prod.yml /tmp/forever-deploy/.env 'ubuntu@52.76.201.170:~/forever/')",
+      "Bash(scp -i /tmp/forever-deploy/id_rsa -o StrictHostKeyChecking=no /tmp/forever-deploy/docker-compose.yml 'ubuntu@52.76.201.170:~/forever/docker-compose.yml')",
+      "Read(//d/tmp/forever-deploy/**)",
+      "Bash(npm run:*)",
+      "Bash(scp -i /tmp/forever-deploy/id_rsa -o StrictHostKeyChecking=no /tmp/forever-deploy/forever-web.tar.gz 'ubuntu@52.76.201.170:~/forever/forever-web.tar.gz')",
+      "Bash(scp -i /tmp/forever-deploy/id_rsa -o StrictHostKeyChecking=no /tmp/forever-deploy/forever-api.tar.gz /tmp/forever-deploy/forever-web.tar.gz 'ubuntu@52.76.201.170:~/forever/')",
+      "Bash(./gradlew bootJar --no-daemon -q)",
+      "Bash(scp:*)",
+      "Bash(ls /tmp/*.pem /tmp/key* /tmp/forever*key* ~/.ssh/github_actions_dev_deploy_key)",
+      "Bash(chmod 600 /tmp/deploy_key.pem)"
+    ]
+  }
+}

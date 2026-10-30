@@ -23,6 +23,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findByIdAndUserId(Long id, Long userId);
 
+    List<Order> findByPaymentMethodAndStatus(PaymentMethod paymentMethod, OrderStatus status);
+
     Page<Order> findByStatus(OrderStatus status, Pageable pageable);
 
     @Query("select o.status, count(o) from Order o group by o.status")

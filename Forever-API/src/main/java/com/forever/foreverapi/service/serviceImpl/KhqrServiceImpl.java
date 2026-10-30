@@ -12,6 +12,7 @@ import com.forever.foreverapi.model.entity.PaymentMethod;
 import com.forever.foreverapi.repository.OrderRepository;
 import com.forever.foreverapi.service.KhqrService;
 import com.forever.foreverapi.service.OrderService;
+import com.forever.foreverapi.service.SseEmitterRegistry;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.qrcode.QRCodeWriter;
@@ -26,6 +27,7 @@ import okhttp3.RequestBody;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.json.JsonMapper;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -34,18 +36,29 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class KhqrServiceImpl implements KhqrService {
     private static final Logger log = LoggerFactory.getLogger(KhqrServiceImpl.class);
     private static final int QR_SIZE = 320;
+    /** Minimum gap between Bakong API calls for the same order (protects daily rate limit). */
+    private static final long BAKONG_COOLDOWN_MS = 15_000;
     private final AppProperties.Khqr config;
     private final JsonMapper json;
     private final OrderService orders;
     private final OrderRepository orderRepository;
+    private final SseEmitterRegistry registry;
     private final OkHttpClient http = new OkHttpClient();
-    public KhqrServiceImpl(AppProperties props, JsonMapper json, OrderService orders, OrderRepository orderRepository) {
-        this.config = props.khqr(); this.json = json; this.orders = orders; this.orderRepository = orderRepository;
+    /** orderId → last time we called Bakong for that order (epoch ms). */
+    private final ConcurrentHashMap<Long, Long> lastChecked = new ConcurrentHashMap<>();
+    /** orderId → cached result from the last Bakong call. */
+    private final ConcurrentHashMap<Long, Boolean> cachedResult = new ConcurrentHashMap<>();
+
+    public KhqrServiceImpl(AppProperties props, JsonMapper json, OrderService orders, OrderRepository orderRepository,
+                           SseEmitterRegistry registry) {
+        this.config = props.khqr(); this.json = json; this.orders = orders;
+        this.orderRepository = orderRepository; this.registry = registry;
     }
 
     public KhqrCheckout checkout(Long userId, PlaceOrderRequest request) {
@@ -110,6 +123,11 @@ public class KhqrServiceImpl implements KhqrService {
     /** Looks the QR up by its MD5 in the Bakong Open API; a transaction found for it means it was paid. */
     private boolean paidOnBakong(Order order) {
         if (order.getKhqrMd5() == null) return false;
+        long now = System.currentTimeMillis();
+        Long last = lastChecked.get(order.getId());
+        if (last != null && (now - last) < BAKONG_COOLDOWN_MS) {
+            return Boolean.TRUE.equals(cachedResult.get(order.getId()));
+        }
         var body = RequestBody.create(json.writeValueAsString(Map.of("md5", order.getKhqrMd5())),
                 MediaType.get("application/json"));
         var request = new Request.Builder()
@@ -123,14 +141,16 @@ public class KhqrServiceImpl implements KhqrService {
             }
             @SuppressWarnings("unchecked")
             Map<String, Object> result = json.readValue(response.body().string(), Map.class);
-            if (!"0".equals(String.valueOf(result.get("responseCode")))
-                    || !(result.get("data") instanceof Map<?, ?> data)) return false;
-            BigDecimal amount = new BigDecimal(String.valueOf(data.get("amount")));
-            if (amount.compareTo(order.getTotal()) != 0) {
-                log.warn("KHQR payment for order {} was {} but the order total is {}", order.getId(), amount, order.getTotal());
-                return false;
+            boolean paid = false;
+            if ("0".equals(String.valueOf(result.get("responseCode")))
+                    && result.get("data") instanceof Map<?, ?> data) {
+                BigDecimal amount = new BigDecimal(String.valueOf(data.get("amount")));
+                paid = amount.compareTo(order.getTotal()) == 0;
+                if (!paid) log.warn("KHQR payment for order {} was {} but the order total is {}", order.getId(), amount, order.getTotal());
             }
-            return true;
+            lastChecked.put(order.getId(), System.currentTimeMillis());
+            cachedResult.put(order.getId(), paid);
+            return paid;
         } catch (Exception e) {
             log.warn("KHQR check failed for order {}: {}", order.getId(), e.toString());
             throw ApiException.unavailable("KHQR_UNAVAILABLE", "Unable to check the KHQR payment with Bakong");
@@ -147,6 +167,50 @@ public class KhqrServiceImpl implements KhqrService {
         var png = new ByteArrayOutputStream();
         ImageIO.write(image, "png", png);
         return "data:image/png;base64," + Base64.getEncoder().encodeToString(png.toByteArray());
+    }
+
+    public SseEmitter events(Long userId, Long orderId) {
+        Order order = orderRepository.findByIdAndUserId(orderId, userId)
+                .orElseThrow(() -> ApiException.notFound("Order not found"));
+        if (order.getPaymentMethod() != PaymentMethod.KHQR) {
+            throw ApiException.badRequest("PAYMENT_MISMATCH", "Order is not a KHQR order");
+        }
+        if (order.isPaid()) {
+            // Already paid before the client connected — send the event immediately.
+            SseEmitter done = new SseEmitter(0L);
+            try {
+                done.send(SseEmitter.event().name("paid").data("true"));
+                done.complete();
+            } catch (Exception e) {
+                done.completeWithError(e);
+            }
+            return done;
+        }
+        return registry.register(orderId);
+    }
+
+    public void checkAndConfirmIfPaid(Order order) {
+        if (order.isPaid()) {
+            registry.notifyPaid(order.getId());
+            return;
+        }
+        boolean paid;
+        if (config.autoConfirmSeconds() > 0) {
+            // Test mode: auto-confirm N seconds after the order was placed (no Bakong call).
+            long ageMs = System.currentTimeMillis() - order.getCreatedAt().toEpochMilli();
+            paid = ageMs >= (long) config.autoConfirmSeconds() * 1000;
+        } else {
+            try {
+                paid = paidOnBakong(order);
+            } catch (Exception e) {
+                log.debug("Bakong check failed for order {}, will retry: {}", order.getId(), e.toString());
+                return;
+            }
+        }
+        if (paid) {
+            orders.confirmOnlinePayment(order.getId());
+            registry.notifyPaid(order.getId());
+        }
     }
 
     private void requireConfigured() {

@@ -1,5 +1,5 @@
 // Thin fetch wrapper for the Forever API: bearer token, one automatic refresh on 401, uniform errors.
-export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8989').replace(/\/+$/, '');
+export const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
 const STORE_KEY = 'forever.tokens';
 
@@ -27,6 +27,7 @@ function readTokens() {
 
 export const session = {
   hasSession: () => !!tokens?.refreshToken,
+  getToken: () => tokens?.accessToken ?? null,
   set(res) {
     tokens = { accessToken: res.accessToken, refreshToken: res.refreshToken };
     localStorage.setItem(STORE_KEY, JSON.stringify(tokens));
@@ -45,7 +46,7 @@ export const session = {
 };
 
 function buildUrl(path, query) {
-  const url = new URL(API_URL + path);
+  const url = new URL(API_URL + path, window.location.origin);
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     (Array.isArray(value) ? value : [value]).forEach((v) => url.searchParams.append(key, v));

@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { API_URL, api, session } from "../api/client";
 
-const POLL_MS = 3000;
-
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const secondsUntil = (instant) => Math.max(0, Math.round((new Date(instant) - Date.now()) / 1000));
 const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 /**
- * KHQR card for a pending order. Polls the API until Bakong shows the payment (onPaid), or cancels the order
- * when the customer gives up or the code expires (onClosed('cancelled' | 'expired')).
+ * KHQR card for a pending order. Opens an SSE stream to get a real-time "paid" push from the server,
+ * or cancels the order when the customer gives up / the code expires (onClosed('cancelled' | 'expired')).
  */
 export default function KhqrPayment({ payment, onPaid, onClosed }) {
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(payment.expiresAt));
   const [closing, setClosing] = useState(false);
-  // Set once the dialog has an outcome, so polling and cancelling never both report one.
+  // Set once the dialog has an outcome so SSE and cancel never both fire.
   const finished = useRef(false);
 
   const finish = useCallback((paid, reason) => {
@@ -24,21 +21,18 @@ export default function KhqrPayment({ payment, onPaid, onClosed }) {
     else onClosed(reason);
   }, [onPaid, onClosed]);
 
+  // SSE: server pushes a "paid" event the moment Bakong confirms payment.
   useEffect(() => {
-    let stopped = false;
-    (async () => {
-      while (!stopped && !finished.current) {
-        await wait(POLL_MS);
-        if (stopped || finished.current) return;
-        try {
-          const result = await api.verifyKhqr(payment.orderId);
-          if (!stopped && result.paid) finish(true);
-        } catch {
-          // Bakong can be briefly unreachable; keep checking until the code expires.
-        }
-      }
-    })();
-    return () => { stopped = true; };
+    const token = session.getToken();
+    const url = new URL(`${API_URL}/api/khqr/${payment.orderId}/events`, window.location.origin);
+    if (token) url.searchParams.set('token', token);
+    const es = new EventSource(url.toString());
+    es.addEventListener('paid', () => {
+      es.close();
+      finish(true);
+    });
+    // onerror fires on normal close too; the browser auto-reconnects until we call close().
+    return () => es.close();
   }, [payment.orderId, finish]);
 
   const cancel = useCallback(async (reason) => {

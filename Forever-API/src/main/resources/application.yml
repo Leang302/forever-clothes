@@ -58,7 +58,7 @@ app:
     bucket: ${MINIO_BUCKET:forever}
   shop:
     currency: USD
-    delivery-fee: 10
+    delivery-fee: 0.01
   seed:
     enabled: true
     admin-email: ${ADMIN_EMAIL:admin@forever.com}
@@ -72,6 +72,8 @@ app:
     api-url: ${KHQR_API_URL:https://api-bakong.nbc.gov.kh}
     api-token: ${KHQR_API_TOKEN:}              # from https://api-bakong.nbc.gov.kh/register
     qr-ttl: 10m
+    # Set > 0 to auto-confirm KHQR payments after N seconds without calling Bakong (testing only).
+    auto-confirm-seconds: ${KHQR_AUTO_CONFIRM_SECONDS:0}
 
 springdoc:
   swagger-ui:

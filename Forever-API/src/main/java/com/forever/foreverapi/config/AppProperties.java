@@ -34,8 +34,9 @@ public record AppProperties(Jwt jwt, Otp otp, Login login, Mail mail, Minio mini
     public record Cors(String allowedOriginPatterns) {
     }
 
-    /** Bakong KHQR: payments go to [accountId]; [apiToken] (Bakong Open API, renewed every 90 days) checks them. */
+    /** Bakong KHQR: payments go to [accountId]; [apiToken] (Bakong Open API, renewed every 90 days) checks them.
+     *  autoConfirmSeconds > 0 skips the Bakong check and auto-confirms after that delay (testing only). */
     public record Khqr(String accountId, String merchantName, String merchantCity, String apiUrl, String apiToken,
-                       Duration qrTtl) {
+                       Duration qrTtl, int autoConfirmSeconds) {
     }
 }
