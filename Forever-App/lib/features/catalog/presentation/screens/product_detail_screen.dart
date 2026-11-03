@@ -17,14 +17,20 @@ import '../../../../core/widgets/section_header.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../auth/presentation/providers/auth_providers.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
+import '../../../wishlist/presentation/widgets/wishlist_heart_button.dart';
 import '../../domain/entities/product.dart';
 import '../providers/catalog_providers.dart';
 import '../widgets/product_card.dart';
 
 class ProductDetailScreen extends ConsumerStatefulWidget {
-  const ProductDetailScreen({super.key, required this.productId});
+  const ProductDetailScreen({super.key, required this.productId, this.heroTag});
 
   final int productId;
+
+  /// The tag of the card that was tapped to get here, so the gallery's Hero
+  /// flight matches it. Null for a cold open (e.g. a deep link); the gallery
+  /// then falls back to the plain `product-image-$productId` tag.
+  final String? heroTag;
 
   @override
   ConsumerState<ProductDetailScreen> createState() =>
@@ -71,6 +77,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
           product: p,
           size: _size,
           onSize: (s) => setState(() => _size = s),
+          heroTag: widget.heroTag,
         ),
         loading: () => Skeletonizer(
           enabled: true,
@@ -78,6 +85,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             product: Product.placeholder,
             size: null,
             onSize: (_) {},
+            heroTag: widget.heroTag,
           ),
         ),
         error: (e, _) => Stack(
@@ -104,6 +112,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 }
 
 class _TopBar extends ConsumerWidget {
+  const _TopBar({this.product});
+
+  final Product? product;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return SafeArea(
@@ -118,6 +130,10 @@ class _TopBar extends ConsumerWidget {
                   context.canPop() ? context.pop() : context.go(Routes.home),
             ),
             const Spacer(),
+            if (product != null && product!.id != 0) ...[
+              WishlistHeartButton(product: product!, size: 44),
+              const SizedBox(width: 10),
+            ],
             CircleIconButton(
               icon: Icons.shopping_bag_outlined,
               tooltip: 'Cart',
@@ -136,11 +152,13 @@ class _Content extends ConsumerWidget {
     required this.product,
     required this.size,
     required this.onSize,
+    this.heroTag,
   });
 
   final Product product;
   final String? size;
   final ValueChanged<String> onSize;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -153,7 +171,7 @@ class _Content extends ConsumerWidget {
         ListView(
           padding: EdgeInsets.zero,
           children: [
-            _Gallery(product: product, height: height),
+            _Gallery(product: product, height: height, heroTag: heroTag),
             Transform.translate(
               offset: const Offset(0, -28),
               child: Container(
@@ -241,7 +259,10 @@ class _Content extends ConsumerWidget {
                                           const SizedBox(width: 14),
                                       itemBuilder: (_, i) => SizedBox(
                                         width: 150,
-                                        child: ProductCard(items[i]),
+                                        child: ProductCard(
+                                          items[i],
+                                          heroTagPrefix: 'related',
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -256,17 +277,18 @@ class _Content extends ConsumerWidget {
             ),
           ],
         ),
-        _TopBar(),
+        _TopBar(product: product),
       ],
     );
   }
 }
 
 class _Gallery extends StatefulWidget {
-  const _Gallery({required this.product, required this.height});
+  const _Gallery({required this.product, required this.height, this.heroTag});
 
   final Product product;
   final double height;
+  final String? heroTag;
 
   @override
   State<_Gallery> createState() => _GalleryState();
@@ -298,7 +320,9 @@ class _GalleryState extends State<_Gallery> {
               final image = AppNetworkImage(images.isEmpty ? null : images[i]);
               return i == 0
                   ? Hero(
-                      tag: 'product-image-${widget.product.id}',
+                      tag:
+                          widget.heroTag ??
+                          'product-image-${widget.product.id}',
                       child: image,
                     )
                   : image;

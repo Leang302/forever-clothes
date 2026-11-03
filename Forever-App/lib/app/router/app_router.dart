@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../features/addresses/presentation/screens/addresses_screen.dart';
 import '../../features/admin/presentation/admin_screen.dart';
 import '../../features/auth/presentation/providers/auth_providers.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
@@ -17,8 +18,10 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/info/presentation/about_screen.dart';
 import '../../features/info/presentation/contact_screen.dart';
 import '../../features/orders/presentation/screens/checkout_screen.dart';
+import '../../features/orders/presentation/screens/order_detail_screen.dart';
 import '../../features/orders/presentation/screens/orders_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/wishlist/presentation/screens/wishlist_screen.dart';
 import '../shell/main_shell.dart';
 import 'routes.dart';
 
@@ -52,7 +55,10 @@ GoRouter appRouter(Ref ref) {
             : Routes.home;
       }
 
-      if (user == null && !auth.isLoading && Routes.protected.contains(path)) {
+      final isProtected = Routes.protected.any(
+        (p) => path == p || path.startsWith('$p/'),
+      );
+      if (user == null && !auth.isLoading && isProtected) {
         return Routes.loginWithRedirect(state.uri.toString());
       }
       if (user != null && Routes.authFlow.contains(path)) {
@@ -96,10 +102,21 @@ GoRouter appRouter(Ref ref) {
         path: Routes.product,
         builder: (_, state) => ProductDetailScreen(
           productId: int.parse(state.pathParameters['id']!),
+          heroTag: state.extra as String?,
         ),
       ),
       GoRoute(path: Routes.checkout, builder: (_, _) => const CheckoutScreen()),
       GoRoute(path: Routes.orders, builder: (_, _) => const OrdersScreen()),
+      GoRoute(
+        path: Routes.order,
+        builder: (_, state) =>
+            OrderDetailScreen(orderId: int.parse(state.pathParameters['id']!)),
+      ),
+      GoRoute(path: Routes.wishlist, builder: (_, _) => const WishlistScreen()),
+      GoRoute(
+        path: Routes.addresses,
+        builder: (_, _) => const AddressesScreen(),
+      ),
       GoRoute(
         path: Routes.login,
         builder: (_, state) =>

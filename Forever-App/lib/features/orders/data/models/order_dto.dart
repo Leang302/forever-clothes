@@ -60,10 +60,15 @@ abstract class OrderDto with _$OrderDto {
     required bool paid,
     @JsonKey(fromJson: doubleFromJson) required double itemsAmount,
     @JsonKey(fromJson: doubleFromJson) required double deliveryFee,
+    @JsonKey(fromJson: doubleFromJson) @Default(0) double discount,
+    String? couponCode,
+    String? shippingMethod,
     @JsonKey(fromJson: doubleFromJson) required double total,
     required AddressDto address,
     required List<OrderItemDto> items,
     required String createdAt,
+    String? cancelReason,
+    String? cancelledBy,
   }) = _OrderDto;
 
   factory OrderDto.fromJson(Map<String, dynamic> json) =>
@@ -78,6 +83,9 @@ extension OrderDtoMapper on OrderDto {
     paid: paid,
     itemsAmount: itemsAmount,
     deliveryFee: deliveryFee,
+    discount: discount,
+    couponCode: couponCode,
+    shippingMethod: shippingMethod,
     total: total,
     address: ShippingAddress(
       firstName: address.firstName,
@@ -103,5 +111,7 @@ extension OrderDtoMapper on OrderDto {
         )
         .toList(),
     createdAt: DateTime.parse(createdAt).toLocal(),
+    cancelReason: cancelReason,
+    cancelledBy: cancelledBy,
   );
 }

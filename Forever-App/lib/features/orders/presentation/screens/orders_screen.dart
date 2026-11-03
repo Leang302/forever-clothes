@@ -168,6 +168,7 @@ class _OrderCard extends ConsumerWidget {
     final color = statusColor(order.status);
     return AppCard(
       padding: const EdgeInsets.all(18),
+      onTap: () => context.push(Routes.orderPath(order.id)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

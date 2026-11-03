@@ -72,9 +72,37 @@ abstract class Order with _$Order {
     required bool paid,
     required double itemsAmount,
     required double deliveryFee,
+    @Default(0) double discount,
+    String? couponCode,
+    String? shippingMethod,
     required double total,
     required ShippingAddress address,
     required List<OrderItem> items,
     required DateTime createdAt,
+    String? cancelReason,
+    String? cancelledBy,
   }) = _Order;
+}
+
+/// A delivery option offered at checkout, fetched from `/api/checkout/options`.
+@freezed
+abstract class ShippingOption with _$ShippingOption {
+  const factory ShippingOption({
+    required String code,
+    required String name,
+    required double fee,
+    required String estimate,
+  }) = _ShippingOption;
+}
+
+/// Result of previewing a coupon code against a subtotal at checkout.
+@freezed
+abstract class CouponPreview with _$CouponPreview {
+  const factory CouponPreview({
+    required String code,
+    String? description,
+    required String discountType,
+    required double discount,
+    required String summary,
+  }) = _CouponPreview;
 }

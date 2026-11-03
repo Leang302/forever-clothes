@@ -219,32 +219,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     int maxLines = 1,
     TextInputType? keyboardType,
   }) async {
-    final controller = TextEditingController(text: initial);
     final value = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: maxLines,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(hintText: hint),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (_) => _AskDialog(
+        title: title,
+        initial: initial,
+        hint: hint,
+        maxLines: maxLines,
+        keyboardType: keyboardType,
       ),
     );
-    controller.dispose();
     return value?.isEmpty == true ? null : value;
   }
 
@@ -2181,6 +2165,62 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
               },
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// A single-text-field prompt. Owning the controller here (rather than in the
+/// caller) means Flutter disposes it only once this dialog's element is truly
+/// unmounted, i.e. after its close animation finishes.
+class _AskDialog extends StatefulWidget {
+  const _AskDialog({
+    required this.title,
+    required this.initial,
+    this.hint,
+    this.maxLines = 1,
+    this.keyboardType,
+  });
+
+  final String title;
+  final String initial;
+  final String? hint;
+  final int maxLines;
+  final TextInputType? keyboardType;
+
+  @override
+  State<_AskDialog> createState() => _AskDialogState();
+}
+
+class _AskDialogState extends State<_AskDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: widget.maxLines,
+        keyboardType: widget.keyboardType,
+        decoration: InputDecoration(hintText: widget.hint),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Save'),
+        ),
       ],
     );
   }

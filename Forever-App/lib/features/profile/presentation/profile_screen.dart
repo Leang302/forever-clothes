@@ -42,6 +42,16 @@ class ProfileScreen extends ConsumerWidget {
                   onTap: () => context.push(Routes.orders),
                 ),
                 _Tile(
+                  icon: Icons.favorite_border_rounded,
+                  title: 'My wishlist',
+                  onTap: () => context.push(Routes.wishlist),
+                ),
+                _Tile(
+                  icon: Icons.location_on_outlined,
+                  title: 'My addresses',
+                  onTap: () => context.push(Routes.addresses),
+                ),
+                _Tile(
                   icon: Icons.edit_outlined,
                   title: 'Edit profile',
                   onTap: () => _editProfile(context, ref, user),

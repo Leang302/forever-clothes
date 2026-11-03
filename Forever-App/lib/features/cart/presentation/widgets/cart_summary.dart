@@ -12,12 +12,26 @@ class CartSummary extends StatelessWidget {
     this.action,
     this.margin = EdgeInsets.zero,
     this.shadow = true,
+    this.discount = 0,
+    this.couponCode,
+    this.shippingLabel,
+    this.deliveryFeeOverride,
   });
 
   final Cart cart;
   final Widget? action;
   final EdgeInsetsGeometry margin;
   final bool shadow;
+
+  /// The applied coupon's saving, if any (checkout only).
+  final double discount;
+  final String? couponCode;
+
+  /// The chosen shipping method's name, shown next to "Shipping" (checkout only).
+  final String? shippingLabel;
+
+  /// Overrides `cart.deliveryFee` with the chosen shipping method's fee (checkout only).
+  final double? deliveryFeeOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +58,9 @@ class CartSummary extends StatelessWidget {
         ],
       ),
     );
+    final deliveryFee = deliveryFeeOverride ?? cart.deliveryFee;
+    final saving = discount > cart.subtotal ? cart.subtotal : discount;
+    final total = cart.subtotal - saving + deliveryFee;
     return Container(
       margin: margin,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -64,12 +81,20 @@ class CartSummary extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           row('Subtotal', formatMoney(cart.subtotal)),
-          row('Shipping', formatMoney(cart.deliveryFee)),
+          if (saving > 0)
+            row(
+              couponCode == null ? 'Discount' : 'Discount ($couponCode)',
+              '-${formatMoney(saving)}',
+            ),
+          row(
+            shippingLabel == null ? 'Shipping' : 'Shipping · $shippingLabel',
+            formatMoney(deliveryFee),
+          ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 6),
             child: Divider(),
           ),
-          row('Total', formatMoney(cart.total), bold: true),
+          row('Total', formatMoney(total), bold: true),
           if (action != null) ...[const SizedBox(height: 14), action!],
         ],
       ),

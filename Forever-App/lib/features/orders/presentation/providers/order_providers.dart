@@ -15,6 +15,16 @@ part 'order_providers.g.dart';
 OrderRepository orderRepository(Ref ref) =>
     OrderRepositoryImpl(OrderRemoteDataSource(ref.watch(dioProvider)));
 
+/// Shipping methods offered at checkout.
+@riverpod
+Future<List<ShippingOption>> checkoutOptions(Ref ref) =>
+    ref.watch(orderRepositoryProvider).checkoutOptions();
+
+/// One of the signed-in user's orders, by id.
+@riverpod
+Future<Order> orderDetail(Ref ref, int orderId) =>
+    ref.watch(orderRepositoryProvider).getById(orderId);
+
 /// Order history of the signed-in user.
 @Riverpod(keepAlive: true)
 class OrdersController extends _$OrdersController {
@@ -32,18 +42,39 @@ class OrdersController extends _$OrdersController {
   Future<Order> place({
     required ShippingAddress address,
     required PaymentMethod paymentMethod,
+    String? couponCode,
+    String? shippingMethod,
+    List<int>? cartItemIds,
   }) async {
     final order = await ref
         .read(orderRepositoryProvider)
-        .place(address: address, paymentMethod: paymentMethod);
+        .place(
+          address: address,
+          paymentMethod: paymentMethod,
+          couponCode: couponCode,
+          shippingMethod: shippingMethod,
+          cartItemIds: cartItemIds,
+        );
     ref.invalidate(cartControllerProvider); // the server emptied the cart
     await refresh();
     return order;
   }
 
   /// The order takes its lines out of the cart until it is paid or cancelled.
-  Future<KhqrPayment> startKhqr(ShippingAddress address) async {
-    final payment = await ref.read(orderRepositoryProvider).startKhqr(address);
+  Future<KhqrPayment> startKhqr(
+    ShippingAddress address, {
+    String? couponCode,
+    String? shippingMethod,
+    List<int>? cartItemIds,
+  }) async {
+    final payment = await ref
+        .read(orderRepositoryProvider)
+        .startKhqr(
+          address,
+          couponCode: couponCode,
+          shippingMethod: shippingMethod,
+          cartItemIds: cartItemIds,
+        );
     ref.invalidate(cartControllerProvider);
     return payment;
   }

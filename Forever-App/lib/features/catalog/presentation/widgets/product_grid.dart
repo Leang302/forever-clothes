@@ -12,9 +12,12 @@ const productGridDelegate = SliverGridDelegateWithFixedCrossAxisCount(
 
 /// Non-scrolling 2-column grid for use inside other scroll views.
 class ProductGrid extends StatelessWidget {
-  const ProductGrid(this.products, {super.key});
+  const ProductGrid(this.products, {super.key, this.heroTagPrefix});
 
   final List<Product> products;
+
+  /// Forwarded to each [ProductCard]; see its doc for why this matters.
+  final String? heroTagPrefix;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +27,8 @@ class ProductGrid extends StatelessWidget {
       padding: EdgeInsets.zero,
       gridDelegate: productGridDelegate,
       itemCount: products.length,
-      itemBuilder: (_, i) => ProductCard(products[i]),
+      itemBuilder: (_, i) =>
+          ProductCard(products[i], heroTagPrefix: heroTagPrefix),
     );
   }
 }

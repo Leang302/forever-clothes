@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../../../core/network/api_guard.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/khqr_payment.dart';
+import '../models/checkout_options_dto.dart';
 import '../models/order_dto.dart';
 
 class OrderRemoteDataSource {
@@ -10,11 +11,38 @@ class OrderRemoteDataSource {
 
   final Dio _dio;
 
-  Future<OrderDto> place(AddressDto address, String paymentMethod) => guardApi(
+  Json _placeOrderBody(
+    AddressDto address,
+    String paymentMethod, {
+    String? couponCode,
+    String? shippingMethod,
+    List<int>? cartItemIds,
+  }) => {
+    'address': address.toJson(),
+    'paymentMethod': paymentMethod,
+    if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode,
+    if (shippingMethod != null) 'shippingMethod': shippingMethod,
+    if (cartItemIds != null && cartItemIds.isNotEmpty)
+      'cartItemIds': cartItemIds,
+  };
+
+  Future<OrderDto> place(
+    AddressDto address,
+    String paymentMethod, {
+    String? couponCode,
+    String? shippingMethod,
+    List<int>? cartItemIds,
+  }) => guardApi(
     () async => OrderDto.fromJson(
       (await _dio.post<Json>(
         '/api/orders',
-        data: {'address': address.toJson(), 'paymentMethod': paymentMethod},
+        data: _placeOrderBody(
+          address,
+          paymentMethod,
+          couponCode: couponCode,
+          shippingMethod: shippingMethod,
+          cartItemIds: cartItemIds,
+        ),
       )).data!,
     ),
   );
@@ -29,16 +57,32 @@ class OrderRemoteDataSource {
         .toList();
   });
 
+  Future<OrderDto> get(int id) => guardApi(
+    () async =>
+        OrderDto.fromJson((await _dio.get<Json>('/api/orders/$id')).data!),
+  );
+
   Future<OrderDto> cancel(int id) => guardApi(
     () async => OrderDto.fromJson(
       (await _dio.post<Json>('/api/orders/$id/cancel')).data!,
     ),
   );
 
-  Future<KhqrPayment> khqrCheckout(AddressDto address) => guardApi(() async {
+  Future<KhqrPayment> khqrCheckout(
+    AddressDto address, {
+    String? couponCode,
+    String? shippingMethod,
+    List<int>? cartItemIds,
+  }) => guardApi(() async {
     final json = (await _dio.post<Json>(
       '/api/khqr/checkout',
-      data: {'address': address.toJson(), 'paymentMethod': 'KHQR'},
+      data: _placeOrderBody(
+        address,
+        'KHQR',
+        couponCode: couponCode,
+        shippingMethod: shippingMethod,
+        cartItemIds: cartItemIds,
+      ),
     )).data!;
     return KhqrPayment(
       orderId: json['orderId'] as int,
@@ -63,4 +107,21 @@ class OrderRemoteDataSource {
         (await _dio.post<Json>('/api/khqr/$orderId/cancel')).data!['paid']
             as bool,
   );
+
+  Future<CheckoutOptionsDto> checkoutOptions() => guardApi(
+    () async => CheckoutOptionsDto.fromJson(
+      (await _dio.get<Json>('/api/checkout/options')).data!,
+    ),
+  );
+
+  /// Previews a coupon's discount for [subtotal]; throws if the code is invalid or doesn't apply.
+  Future<CouponPreviewDto> checkCoupon(String code, double subtotal) =>
+      guardApi(
+        () async => CouponPreviewDto.fromJson(
+          (await _dio.post<Json>(
+            '/api/checkout/coupon',
+            data: {'code': code, 'subtotal': subtotal},
+          )).data!,
+        ),
+      );
 }

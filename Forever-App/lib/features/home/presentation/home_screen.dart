@@ -113,10 +113,13 @@ class HomeScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 14),
             latest.when(
-              data: (items) => _Carousel(items),
+              data: (items) => _Carousel(items, heroTagPrefix: 'home-latest'),
               loading: () => Skeletonizer(
                 enabled: true,
-                child: _Carousel(List.filled(4, Product.placeholder)),
+                child: _Carousel(
+                  List.filled(4, Product.placeholder),
+                  heroTagPrefix: 'home-latest',
+                ),
               ),
               error: (e, _) => SizedBox(
                 height: 220,
@@ -130,10 +133,13 @@ class HomeScreen extends ConsumerWidget {
             const SectionHeader('Best sellers'),
             const SizedBox(height: 14),
             best.when(
-              data: (items) => ProductGrid(items),
+              data: (items) => ProductGrid(items, heroTagPrefix: 'home-best'),
               loading: () => Skeletonizer(
                 enabled: true,
-                child: ProductGrid(List.filled(4, Product.placeholder)),
+                child: ProductGrid(
+                  List.filled(4, Product.placeholder),
+                  heroTagPrefix: 'home-best',
+                ),
               ),
               error: (e, _) => const SizedBox.shrink(),
             ),
@@ -294,9 +300,10 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class _Carousel extends StatelessWidget {
-  const _Carousel(this.products);
+  const _Carousel(this.products, {this.heroTagPrefix});
 
   final List<Product> products;
+  final String? heroTagPrefix;
 
   @override
   Widget build(BuildContext context) {
@@ -307,8 +314,10 @@ class _Carousel extends StatelessWidget {
         clipBehavior: Clip.none,
         itemCount: products.length,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (_, i) =>
-            SizedBox(width: 168, child: ProductCard(products[i])),
+        itemBuilder: (_, i) => SizedBox(
+          width: 168,
+          child: ProductCard(products[i], heroTagPrefix: heroTagPrefix),
+        ),
       ),
     );
   }

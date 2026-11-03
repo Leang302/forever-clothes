@@ -11,6 +11,11 @@ abstract final class Routes {
 
   static const checkout = '/checkout';
   static const orders = '/orders';
+  static const order = '/orders/:id';
+  static String orderPath(int id) => '/orders/$id';
+
+  static const wishlist = '/wishlist';
+  static const addresses = '/addresses';
 
   static const login = '/login';
   static const register = '/register';
@@ -31,7 +36,7 @@ abstract final class Routes {
   };
 
   /// Screens that need an account.
-  static const protected = {checkout, orders};
+  static const protected = {checkout, orders, wishlist, addresses};
 
   static String loginWithRedirect(String redirect) =>
       '$login?redirect=${Uri.encodeComponent(redirect)}';
