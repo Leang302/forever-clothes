@@ -9,6 +9,8 @@ class KhqrPayment {
     required this.currency,
     required this.merchantName,
     required this.expiresAt,
+    this.qrString,
+    this.guestAccessToken,
   });
 
   final int orderId;
@@ -19,6 +21,12 @@ class KhqrPayment {
   final String currency;
   final String merchantName;
   final DateTime expiresAt;
+
+  /// The raw KHQR payload encoded in [qrImage].
+  final String? qrString;
+
+  /// Set only for an anonymous guest checkout (see `PlacedOrder.guestAccessToken`).
+  final String? guestAccessToken;
 
   Uint8List get qrBytes => UriData.parse(qrImage).contentAsBytes();
 }

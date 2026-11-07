@@ -2,9 +2,11 @@ import { api } from "../api/client";
 import Title from "./Title";
 import useApi from "./useApi";
 import ProductGridSection from "./ProductGridSection";
+import { useSSRData } from "../context/SSRDataContext";
 
 const BestSeller = () => {
-   const { data, loading, error } = useApi(() => api.bestsellers(5), []);
+   const ssr = useSSRData();
+   const { data, loading, error } = useApi(() => api.bestsellers(5), [], ssr?.bestsellers ?? null);
 
    return (
       <div className="my-10">

@@ -199,16 +199,19 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     return e.message ?? 'Could not load data';
   }
 
-  Future<void> _mutate(Future<void> Function() action) async {
+  /// Runs [action] then reloads; returns false (after showing why) on failure.
+  Future<bool> _mutate(Future<void> Function() action) async {
     try {
       await action();
       await _load();
+      return true;
     } on DioException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(_message(e))));
       }
+      return false;
     }
   }
 
@@ -1246,18 +1249,73 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  _stockSummary(row['stock']),
+                  key: Key('admin-stock-$id'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12.5),
+                ),
                 const SizedBox(height: 6),
-                AdminStatusBadge(row['active'] == true ? 'Visible' : 'Hidden'),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    AdminStatusBadge(
+                      row['active'] == true ? 'Visible' : 'Hidden',
+                    ),
+                    AdminStatusBadge(
+                      _totalStock(row['stock']) > 0
+                          ? 'In stock'
+                          : 'Out of stock',
+                    ),
+                  ],
+                ),
               ],
             ),
-            trailing: Switch(
-              value: row['active'] == true,
-              onChanged: (active) => _mutate(() async {
-                await _dio.patch(
-                  '/api/admin/products/$id/active',
-                  queryParameters: {'active': active},
-                );
-              }),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  value: row['active'] == true,
+                  onChanged: (active) => _mutate(() async {
+                    await _dio.patch(
+                      '/api/admin/products/$id/active',
+                      queryParameters: {'active': active},
+                    );
+                  }),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'More actions',
+                  onSelected: (action) async {
+                    if (action != 'delete') return;
+                    if (!await _confirm(
+                      'Delete product?',
+                      'Remove "${row['name']}" from the shop? Shoppers will no '
+                          'longer see it. It stays in this list as Hidden so '
+                          'existing orders keep their details.',
+                    )) {
+                      return;
+                    }
+                    final deleted = await _mutate(() async {
+                      await _dio.delete('/api/admin/products/$id');
+                    });
+                    if (deleted && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '"${row['name']}" removed from the shop',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                ),
+              ],
             ),
             onTap: () => _openForm(ProductFormScreen(product: row)),
           ),
@@ -1282,17 +1340,32 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
               ],
             ),
             subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
+              padding: const EdgeInsets.only(top: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  AdminStatusBadge('${row['status']}'),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _displayDate(row['createdAt']),
-                      style: const TextStyle(fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                  Text(
+                    _customerLine(row['address']),
+                    key: Key('admin-order-customer-$id'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      AdminStatusBadge('${row['status']}'),
+                      const SizedBox(width: 6),
+                      AdminStatusBadge(row['paid'] == true ? 'Paid' : 'Unpaid'),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _displayDate(row['createdAt']),
+                          style: const TextStyle(fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1471,6 +1544,30 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     }
   }
 
+  /// Units across all sizes from the API's `stock` map (`{"S": 4, ...}`).
+  static int _totalStock(Object? stock) => stock is Map
+      ? stock.values.fold<int>(0, (sum, v) => sum + ((v as num?)?.toInt() ?? 0))
+      : 0;
+
+  static double _num(Object? v) =>
+      v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
+
+  /// "Sokha Chan · 012 345 678" from an order's shipping address.
+  static String _customerLine(Object? address) {
+    if (address is! Map) return 'Unknown customer';
+    final name = '${address['firstName'] ?? ''} ${address['lastName'] ?? ''}'
+        .trim();
+    final phone = '${address['phone'] ?? ''}'.trim();
+    return [if (name.isNotEmpty) name, if (phone.isNotEmpty) phone].join(' · ');
+  }
+
+  /// "12 in stock · S 4 · M 8 · L 0".
+  static String _stockSummary(Object? stock) {
+    if (stock is! Map || stock.isEmpty) return 'Stock unknown';
+    final perSize = stock.entries.map((e) => '${e.key} ${e.value}').join(' · ');
+    return '${_totalStock(stock)} in stock · $perSize';
+  }
+
   String _displayDate(Object? value) {
     final parsed = DateTime.tryParse('$value');
     return parsed == null ? '$value' : formatDate(parsed.toLocal());
@@ -1544,10 +1641,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          'Size ${items[i]['size']} · Qty ${items[i]['quantity']}',
+                          'Size ${items[i]['size']} · '
+                          '${items[i]['quantity']} × '
+                          '${formatMoney(_num(items[i]['price']))}',
                         ),
                         trailing: Text(
-                          '\$${items[i]['price']}',
+                          formatMoney(
+                            _num(items[i]['price']) *
+                                _num(items[i]['quantity']),
+                          ),
+                          key: Key('admin-item-subtotal-$i'),
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -1601,7 +1704,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '${address['street'] ?? ''}, ${address['city'] ?? ''}, ${address['state'] ?? ''} ${address['zipcode'] ?? ''}',
+                      '${address['street'] ?? ''}, ${address['city'] ?? ''}, ${address['state'] ?? ''} ${address['zipcode'] ?? ''}, ${address['country'] ?? ''}',
                     ),
                     const SizedBox(height: 6),
                     Text(

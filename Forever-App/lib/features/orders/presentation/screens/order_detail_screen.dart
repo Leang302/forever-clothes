@@ -13,15 +13,26 @@ import '../../../../core/widgets/state_views.dart';
 import '../../domain/entities/order.dart';
 import '../providers/order_providers.dart';
 import '../widgets/order_progress.dart';
+import '../widgets/payment_state_pill.dart';
 
 class OrderDetailScreen extends ConsumerWidget {
-  const OrderDetailScreen({super.key, required this.orderId});
+  const OrderDetailScreen({
+    super.key,
+    required this.orderId,
+    this.guest = false,
+  });
 
   final int orderId;
 
+  /// A guest (no-account) order, readable only with the access token held in
+  /// memory for this app run.
+  final bool guest;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final order = ref.watch(orderDetailProvider(orderId));
+    final hasGuestAccess = ref.watch(
+      guestOrderAccessProvider.select((m) => m.containsKey(orderId)),
+    );
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -35,7 +46,7 @@ class OrderDetailScreen extends ConsumerWidget {
                     icon: Icons.arrow_back_ios_new_rounded,
                     onTap: () => context.canPop()
                         ? context.pop()
-                        : context.go(Routes.orders),
+                        : context.go(guest ? Routes.home : Routes.orders),
                   ),
                   const SizedBox(width: 14),
                   Text(
@@ -48,14 +59,31 @@ class OrderDetailScreen extends ConsumerWidget {
               ),
             ),
             Expanded(
-              child: order.when(
-                data: (o) => _Content(order: o),
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => ErrorView(
-                  error: e,
-                  onRetry: () => ref.invalidate(orderDetailProvider(orderId)),
-                ),
-              ),
+              child: (guest && !hasGuestAccess)
+                  ? EmptyState(
+                      key: const Key('guest-order-unavailable'),
+                      icon: Icons.mark_email_read_outlined,
+                      title: 'Check your email',
+                      message:
+                          'Your order confirmation was sent to the email '
+                          'address you entered at checkout. For your privacy, '
+                          'guest order details are only shown right after '
+                          'checkout on this device.',
+                      actionLabel: 'Continue shopping',
+                      onAction: () => context.go(Routes.home),
+                    )
+                  : ref
+                        .watch(orderDetailProvider(orderId))
+                        .when(
+                          data: (o) => _Content(order: o),
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (e, _) => ErrorView(
+                            error: e,
+                            onRetry: () =>
+                                ref.invalidate(orderDetailProvider(orderId)),
+                          ),
+                        ),
             ),
           ],
         ),
@@ -231,11 +259,31 @@ class _Content extends ConsumerWidget {
               ),
               _row('Total', formatMoney(order.total), bold: true),
               const SizedBox(height: 10),
-              Text(
-                'Payment: ${order.paymentMethod.label}'
-                '${order.paid ? ' · paid' : ''}',
-                style: const TextStyle(color: AppColors.muted),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Payment: ${order.paymentMethod.label}',
+                      style: const TextStyle(color: AppColors.muted),
+                    ),
+                  ),
+                  PaymentStatePill(order),
+                ],
               ),
+              if (order.paymentState == PaymentState.awaitingPayment) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'We have not received this KHQR payment yet.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
+              ],
+              if (order.paymentState == PaymentState.payOnDelivery) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Pay in cash when your order is delivered.',
+                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
+              ],
             ],
           ),
         ),

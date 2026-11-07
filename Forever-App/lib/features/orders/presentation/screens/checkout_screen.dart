@@ -1,9 +1,12 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/router/routes.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/error/app_exception.dart';
 import '../../../../core/utils/haptics.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_snackbar.dart';
@@ -16,6 +19,30 @@ import '../../../cart/presentation/widgets/cart_summary.dart';
 import '../../domain/entities/order.dart';
 import '../providers/order_providers.dart';
 import '../widgets/khqr_payment_sheet.dart';
+
+/// Validation of one checkout address field (limits mirror the API's).
+String? checkoutFieldError(
+  String? value, {
+  bool email = false,
+  bool phone = false,
+  int max = 100,
+}) {
+  final t = value?.trim() ?? '';
+  if (t.isEmpty) return 'Required';
+  if (t.length > max) return 'Use at most $max characters';
+  if (email && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$').hasMatch(t)) {
+    return 'Enter a valid email';
+  }
+  if (phone) {
+    final digits = t.replaceAll(RegExp(r'\D'), '');
+    if (!RegExp(r'^\+?[0-9 ()\-.]+$').hasMatch(t) ||
+        digits.length < 6 ||
+        digits.length > 15) {
+      return 'Enter a valid phone number';
+    }
+  }
+  return null;
+}
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -47,9 +74,32 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   CouponPreview? _couponPreview;
   String? _couponError;
 
+  /// Generated once per checkout attempt and resent unchanged on an
+  /// identical retry, so a resubmission after a failed/ambiguous request
+  /// (e.g. timeout) can't create a duplicate order server-side. If the
+  /// shopper changes anything the order is built from (address, payment,
+  /// shipping, coupon, cart) a new key is minted — the server would
+  /// otherwise reject the reused key with 409 IDEMPOTENCY_KEY_MISMATCH.
+  String? _idempotencyKey;
+
+  /// [_checkoutFingerprint] of the details [_idempotencyKey] was minted for.
+  String? _keyFingerprint;
+
+  String _newIdempotencyKey() {
+    final rand = Random.secure();
+    return List.generate(32, (_) => rand.nextInt(16).toRadixString(16)).join();
+  }
+
   @override
   void initState() {
     super.initState();
+    // Guest checkout needs no extra session here: a shopper only gets this
+    // far with a cart, and adding to the cart already started their
+    // anonymous guest cart session. Without one the cart is empty and
+    // "Place order" is disabled.
+    //
+    // Only a signed-in customer's own profile / saved address is prefilled.
+    // A guest starts from an EMPTY form and must enter real details.
     final user = ref.read(currentUserProvider);
     if (user != null) {
       final parts = user.name.trim().split(RegExp(r'\s+'));
@@ -132,7 +182,111 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     }
   }
 
+  /// Everything the server builds the order from; a change means a new order.
+  String _checkoutFingerprint(ShippingAddress address, String? couponCode) {
+    final lines = (ref.read(cartControllerProvider).value?.items ?? const [])
+        .map((l) => '${l.productId}/${l.size}x${l.quantity}')
+        .join(',');
+    return [
+      address.toString(),
+      _method.apiValue,
+      _shippingMethod ?? '',
+      couponCode ?? '',
+      lines,
+    ].join('|');
+  }
+
+  /// Same key for an identical retry; a fresh one once the details changed.
+  String _keyFor(String fingerprint) {
+    if (_idempotencyKey == null || _keyFingerprint != fingerprint) {
+      _idempotencyKey = _newIdempotencyKey();
+      _keyFingerprint = fingerprint;
+    }
+    return _idempotencyKey!;
+  }
+
+  void _resetIdempotencyKey() {
+    _idempotencyKey = null;
+    _keyFingerprint = null;
+  }
+
+  /// Lands on the order itself so the shopper sees its real payment state.
+  /// A guest's order opens through the guest route (in-memory access token).
+  void _showPlacedOrder(int orderId, String message) {
+    _resetIdempotencyKey(); // order placed: the next submit is a new one
+    Haptics.success();
+    if (!mounted) return;
+    final guest = ref.read(currentUserProvider) == null;
+    context.go(
+      guest ? Routes.guestOrderPath(orderId) : Routes.orderPath(orderId),
+    );
+    AppSnackbar.info(context, message);
+  }
+
+  /// Clear wording for the checkout-specific 409s; anything else is shown
+  /// with the server's own message.
+  void _handlePlaceError(AppException e) {
+    switch (e.code) {
+      case 'IDEMPOTENCY_KEY_MISMATCH':
+        // Our key was already used for different details; the next tap
+        // starts a genuinely new attempt.
+        _resetIdempotencyKey();
+        AppSnackbar.error(
+          context,
+          const AppException(
+            'Your checkout details changed since the last attempt. '
+            'Please check them and place the order again.',
+          ),
+        );
+      case 'ORDER_ALREADY_PAID':
+        _resetIdempotencyKey();
+        ref.invalidate(cartControllerProvider);
+        if (ref.read(currentUserProvider) == null) {
+          AppSnackbar.info(
+            context,
+            'This order has already been paid — check your email for the '
+            'confirmation.',
+          );
+          context.go(Routes.home);
+        } else {
+          ref.read(ordersControllerProvider.notifier).refresh().ignore();
+          AppSnackbar.info(
+            context,
+            'This order has already been paid — see it in My orders.',
+          );
+          context.go(Routes.orders);
+        }
+      case 'GUEST_SESSION_EXPIRED':
+        // The stored guest cart session is gone (and its cart with it).
+        _resetIdempotencyKey();
+        AppSnackbar.error(
+          context,
+          const AppException(
+            'Your guest cart has expired. Please add your items again.',
+          ),
+        );
+      case 'ORDER_NOT_PENDING':
+        _resetIdempotencyKey();
+        ref.invalidate(cartControllerProvider);
+        AppSnackbar.error(
+          context,
+          const AppException(
+            'That payment attempt was cancelled. Please place the order again.',
+          ),
+        );
+      case 'OUT_OF_STOCK':
+        // Refresh so the cart shows which line is over stock.
+        ref.invalidate(cartControllerProvider);
+        AppSnackbar.error(context, e);
+      default:
+        AppSnackbar.error(context, e);
+    }
+  }
+
   Future<void> _place() async {
+    // A second tap while the first request is in flight is ignored (and
+    // would reuse the same idempotency key anyway).
+    if (_busy) return;
     if (!_form.currentState!.validate()) {
       Haptics.error();
       return;
@@ -150,6 +304,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       phone: _phone.text.trim(),
     );
     final orders = ref.read(ordersControllerProvider.notifier);
+    final key = _keyFor(_checkoutFingerprint(address, _couponPreview?.code));
     try {
       if (_saveAddress) {
         final saved = await ref
@@ -179,9 +334,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           address,
           couponCode: couponCode,
           shippingMethod: _shippingMethod,
+          idempotencyKey: key,
         );
         if (!mounted) return;
+        // Success is shown ONLY when the API has confirmed the payment
+        // (verify/cancel returned paid) — never just because a QR was made.
         if (!await showKhqrPaymentSheet(context, payment)) {
+          // The server cancelled that pending order (its key now maps to a
+          // cancelled order), so a new attempt needs a new key.
+          _resetIdempotencyKey();
           if (mounted) {
             AppSnackbar.info(
               context,
@@ -190,18 +351,25 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           }
           return;
         }
+        _showPlacedOrder(
+          payment.orderId,
+          'Payment received — order #${payment.orderId} placed. Thank you!',
+        );
       } else {
-        await orders.place(
+        final order = await orders.place(
           paymentMethod: _method,
           address: address,
           couponCode: couponCode,
           shippingMethod: _shippingMethod,
+          idempotencyKey: key,
+        );
+        _showPlacedOrder(
+          order.id,
+          'Order #${order.id} placed — pay in cash on delivery.',
         );
       }
-      Haptics.success();
-      if (!mounted) return;
-      context.go(Routes.orders);
-      AppSnackbar.info(context, 'Order placed. Thank you!');
+    } on AppException catch (e) {
+      if (mounted) _handlePlaceError(e);
     } catch (e) {
       if (mounted) AppSnackbar.error(context, e);
     } finally {
@@ -215,23 +383,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     TextInputType? type,
     bool last = false,
     bool email = false,
+    bool phone = false,
+    int max = 100,
     TextCapitalization caps = TextCapitalization.words,
   }) {
     return TextFormField(
       controller: c,
       keyboardType: type,
-      textCapitalization: email ? TextCapitalization.none : caps,
+      textCapitalization: (email || phone) ? TextCapitalization.none : caps,
       textInputAction: last ? TextInputAction.done : TextInputAction.next,
       decoration: InputDecoration(labelText: label),
       onChanged: (_) => _onFieldEdited(),
-      validator: (v) {
-        final t = v?.trim() ?? '';
-        if (t.isEmpty) return 'Required';
-        if (email && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(t)) {
-          return 'Enter a valid email';
-        }
-        return null;
-      },
+      validator: (v) =>
+          checkoutFieldError(v, email: email, phone: phone, max: max),
     );
   }
 
@@ -257,6 +421,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         }
       });
     }
+    final signedIn = ref.watch(currentUserProvider) != null;
     final selectedShipping = shippingOptions
         .where((o) => o.code == _shippingMethod)
         .firstOrNull;
@@ -310,8 +475,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ],
               const SizedBox(height: 14),
               _pair(
-                _field(_firstName, 'First name'),
-                _field(_lastName, 'Last name'),
+                _field(_firstName, 'First name', max: 80),
+                _field(_lastName, 'Last name', max: 80),
               ),
               const SizedBox(height: 14),
               _field(
@@ -319,14 +484,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 'Email',
                 type: TextInputType.emailAddress,
                 email: true,
+                max: 254,
               ),
               const SizedBox(height: 14),
-              _field(_street, 'Street address'),
+              _field(_street, 'Street address', max: 200),
               const SizedBox(height: 14),
               _pair(_field(_city, 'City'), _field(_state, 'State / province')),
               const SizedBox(height: 14),
               _pair(
-                _field(_zip, 'Zip code', type: TextInputType.number),
+                _field(_zip, 'Zip code', type: TextInputType.number, max: 20),
                 _field(_country, 'Country'),
               ),
               const SizedBox(height: 14),
@@ -334,20 +500,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 _phone,
                 'Phone number',
                 type: TextInputType.phone,
+                phone: true,
+                max: 40,
                 last: true,
               ),
               const SizedBox(height: 10),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _saveAddress,
-                onChanged: (v) => setState(() {
-                  _saveAddress = v ?? false;
-                  if (_saveAddress) _selectedAddressId = null;
-                }),
-                title: const Text('Save this address for next time'),
-              ),
-              if (_saveAddress) ...[
+              // Saved addresses belong to an account; a guest has none.
+              if (signedIn)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _saveAddress,
+                  onChanged: (v) => setState(() {
+                    _saveAddress = v ?? false;
+                    if (_saveAddress) _selectedAddressId = null;
+                  }),
+                  title: const Text('Save this address for next time'),
+                ),
+              if (signedIn && _saveAddress) ...[
                 const SizedBox(height: 4),
                 _field(_addressLabel, 'Address label, e.g. Home', last: true),
               ],

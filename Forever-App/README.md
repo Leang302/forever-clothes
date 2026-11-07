@@ -14,6 +14,25 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8989   # real phone: 
 ```
 
 * Android emulator uses `http://10.0.2.2:8989` automatically; the address can also be changed in **Profile → Server address**.
+* **Shared product links** point at the React storefront: `<WEB_BASE_URL>/product/<id>`. Without
+  `--dart-define=WEB_BASE_URL=…` they use the local Vite dev server (`http://localhost:5173`, or `http://10.0.2.2:5173`
+  on the Android emulator), which only opens on this machine. For links that work for real recipients, build with the
+  deployed public site, e.g. `flutter build ios --dart-define=WEB_BASE_URL=https://<your-deployed-storefront>`.
+
+Integration tests (real app on a simulator, against the local API started with the dev-only fake Bakong on :9099):
+
+```bash
+flutter test integration_test/guest_checkout_test.dart -d <device-id>   # guest KHQR + quick add + COD
+flutter test integration_test/admin_smoke_test.dart -d <device-id>      # admin product/order screens
+flutter test integration_test/guest_checkout_idempotency_test.dart -d <device-id>
+flutter test integration_test/guest_no_session_on_launch_test.dart -d <device-id>
+flutter test integration_test/guest_login_transition_test.dart -d <device-id> \
+  --dart-define=IT_USER_EMAIL=<verified customer> --dart-define=IT_USER_PASSWORD=<password>
+```
+* Guests are anonymous cart sessions, never a login: the first add-to-cart calls `POST /api/guest-sessions` and the
+  token is kept in secure storage under its own key (`guest_session_token`) and sent as `X-Guest-Session` only on
+  cart/checkout/order-placement calls while logged out. Logging in/registering revokes it (no cart merge, no order
+  attachment). A guest order's `guestAccessToken` is kept in memory only (`GuestOrderAccess`).
 * Start the API first (`../Forever-API/README.md`). Sign-up / reset codes arrive in Mailpit at http://localhost:8025.
 * While editing models or `@riverpod` providers keep `dart run build_runner watch` running.
 

@@ -14,6 +14,12 @@ abstract final class Routes {
   static const order = '/orders/:id';
   static String orderPath(int id) => '/orders/$id';
 
+  /// A guest order placed in this app run (confirmation / KHQR status). Only
+  /// the order id is in the path; its access token stays in memory
+  /// (`GuestOrderAccess`) and never appears in a route.
+  static const guestOrder = '/guest-order/:id';
+  static String guestOrderPath(int id) => '/guest-order/$id';
+
   static const wishlist = '/wishlist';
   static const addresses = '/addresses';
 
@@ -35,8 +41,11 @@ abstract final class Routes {
     resetPassword,
   };
 
-  /// Screens that need an account.
-  static const protected = {checkout, orders, wishlist, addresses};
+  /// Screens that need an account. `checkout` and `guestOrder` are
+  /// deliberately excluded: anonymous shoppers check out with their guest
+  /// cart session (never a login). Order history, wishlist and saved
+  /// addresses are account-only (the API answers 403 to a guest session).
+  static const protected = {orders, wishlist, addresses};
 
   static String loginWithRedirect(String redirect) =>
       '$login?redirect=${Uri.encodeComponent(redirect)}';

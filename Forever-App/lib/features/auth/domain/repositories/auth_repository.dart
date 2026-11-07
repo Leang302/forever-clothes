@@ -10,6 +10,9 @@ enum OtpPurpose {
 
 abstract interface class AuthRepository {
   /// The saved session's user, or null when logged out. Throws on network failure.
+  ///
+  /// A saved session the server rejects, or one belonging to a GUEST-role
+  /// user (the retired throwaway-guest login), is cleared and yields null.
   Future<AppUser?> restoreSession();
 
   Future<AppUser> login({required String email, required String password});

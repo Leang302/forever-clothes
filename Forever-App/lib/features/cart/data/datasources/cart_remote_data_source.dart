@@ -12,14 +12,15 @@ class CartRemoteDataSource {
     () async => CartDto.fromJson((await _dio.get<Json>('/api/cart')).data!),
   );
 
-  Future<CartDto> add(int productId, String size) => guardApi(
-    () async => CartDto.fromJson(
-      (await _dio.post<Json>(
-        '/api/cart/items',
-        data: {'productId': productId, 'size': size, 'quantity': 1},
-      )).data!,
-    ),
-  );
+  Future<CartDto> add(int productId, String size, {int quantity = 1}) =>
+      guardApi(
+        () async => CartDto.fromJson(
+          (await _dio.post<Json>(
+            '/api/cart/items',
+            data: {'productId': productId, 'size': size, 'quantity': quantity},
+          )).data!,
+        ),
+      );
 
   Future<CartDto> setQuantity(int productId, String size, int quantity) =>
       guardApi(

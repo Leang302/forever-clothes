@@ -69,7 +69,8 @@ public class ProductServiceImpl implements ProductService {
             }
             return cb.and(ps.toArray(new Predicate[0]));
         };
-        return PageResponse.of(repo.findAll(spec, pageable), mapper::toResponse);
+        var result = repo.findAll(spec, pageable);
+        return PageResponse.ofContent(result, mapper.toResponses(result.getContent()));
     }
 
     @Transactional(readOnly = true)
@@ -85,22 +86,20 @@ public class ProductServiceImpl implements ProductService {
 
     @Transactional(readOnly = true)
     public List<ProductResponse> latest(int limit) {
-        return repo.findByActiveTrueOrderByCreatedAtDesc(PageRequest.of(0, clamp(limit))).stream()
-                .map(mapper::toResponse).toList();
+        return mapper.toResponses(repo.findByActiveTrueOrderByCreatedAtDesc(PageRequest.of(0, clamp(limit))));
     }
 
     @Transactional(readOnly = true)
     public List<ProductResponse> bestsellers(int limit) {
-        return repo.findByActiveTrueAndBestsellerTrueOrderByCreatedAtDesc(PageRequest.of(0, clamp(limit))).stream()
-                .map(mapper::toResponse).toList();
+        return mapper.toResponses(
+                repo.findByActiveTrueAndBestsellerTrueOrderByCreatedAtDesc(PageRequest.of(0, clamp(limit))));
     }
 
     @Transactional(readOnly = true)
     public List<ProductResponse> related(Long id, int limit) {
         Product p = repo.findByIdAndActiveTrue(id).orElseThrow(() -> ApiException.notFound("Product not found"));
-        return repo.findByActiveTrueAndCategoryAndSubCategoryAndIdNotOrderByCreatedAtDesc(
-                        p.getCategory(), p.getSubCategory(), id, PageRequest.of(0, clamp(limit))).stream()
-                .map(mapper::toResponse).toList();
+        return mapper.toResponses(repo.findByActiveTrueAndCategoryAndSubCategoryAndIdNotOrderByCreatedAtDesc(
+                p.getCategory(), p.getSubCategory(), id, PageRequest.of(0, clamp(limit))));
     }
 
     @Transactional(readOnly = true)
@@ -112,12 +111,14 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse create(ProductForm form) {
         Product p = new Product();
         apply(p, form);
-        replaceAll(p.getImages(), uploadAll(form.images()));
+        p.setActive(form.active() == null || form.active());
+        replaceAll(p.getImages(), newImages(form));
         if (p.getImages().isEmpty()) {
-            throw ApiException.badRequest("IMAGE_REQUIRED", "At least one image is required");
+            throw ApiException.badRequest("IMAGE_REQUIRED", "At least one image (file or URL) is required");
         }
         Product saved = repo.save(p);
         commerce.syncInventory(saved.getId(), saved.getSizes());
+        applyStock(saved, form.stock());
         return mapper.toResponse(saved);
     }
 
@@ -125,16 +126,43 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse update(Long id, ProductForm form) {
         Product p = repo.findById(id).orElseThrow(() -> ApiException.notFound("Product not found"));
         apply(p, form);
-        List<String> uploaded = uploadAll(form.images());
-        if (!uploaded.isEmpty()) {
+        if (form.active() != null) p.setActive(form.active());
+        List<String> images = newImages(form);
+        if (!images.isEmpty()) {
             List<String> old = new ArrayList<>(p.getImages());
-            replaceAll(p.getImages(), uploaded);
+            replaceAll(p.getImages(), images);
             repo.save(p);
-            old.stream().filter(k -> k.startsWith("products/")).forEach(storage::delete); // seed images ("seed/") are shared
+            old.stream().filter(k -> k.startsWith("products/") && !images.contains(k))
+                    .forEach(storage::delete); // seed images ("seed/") are shared
         }
         Product saved = repo.save(p);
         commerce.syncInventory(saved.getId(), saved.getSizes());
+        applyStock(saved, form.stock());
         return mapper.toResponse(saved);
+    }
+
+    private void applyStock(Product p, Integer stock) {
+        if (stock == null) return;
+        for (String size : p.getSizes()) commerce.setStock(p.getId(), size, stock);
+    }
+
+    /** Uploaded files plus admin-entered URLs, validated together against the image limit. */
+    private List<String> newImages(ProductForm form) {
+        List<String> urls = form.imageUrls() == null ? List.of() : form.imageUrls().stream()
+                .flatMap(s -> java.util.Arrays.stream(s.split("[\\s,]+")))
+                .map(String::trim).filter(s -> !s.isEmpty()).distinct().toList();
+        for (String url : urls) {
+            if (!url.matches("(?i)^https?://\\S+$") || url.length() > 500) {
+                throw ApiException.badRequest("INVALID_IMAGE_URL", "Image URL must start with http:// or https://");
+            }
+        }
+        long files = form.images() == null ? 0 : form.images().stream().filter(f -> f != null && !f.isEmpty()).count();
+        if (urls.size() + files > MAX_IMAGES) {
+            throw ApiException.badRequest("TOO_MANY_IMAGES", "A product can have at most " + MAX_IMAGES + " images");
+        }
+        List<String> out = new ArrayList<>(uploadAll(form.images()));
+        out.addAll(urls);
+        return out;
     }
 
     @Transactional

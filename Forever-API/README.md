@@ -71,8 +71,19 @@ Everything is documented and callable in Swagger UI (use **Authorize** with the 
   expire after 10 min, allow 5 attempts and a 60 s resend cooldown. Unverified logins get `403 EMAIL_NOT_VERIFIED`. Password guessing is throttled per e-mail: 5 wrong passwords in 15 min lock login for 15 min (`429 TOO_MANY_LOGIN_ATTEMPTS`; a password reset clears it). The counter is in memory, so use a shared store (e.g. Redis) if you run several instances.
 * **Profile** `/api/users/me` – read/update profile, `change-password`.
 * **Products** `/api/products` (public) – search/filter/sort/paginate, `filters`, `latest`, `bestsellers`, `{id}`, `{id}/related`.
-* **Cart** `/api/cart` – server-side cart with totals (delivery fee 10).
+* **Cart** `/api/cart` – server-side cart with totals (delivery fee 10). Owned by the logged-in customer *or* an
+  anonymous guest session (see below) — never both.
 * **Orders** `/api/orders` – place from cart, list, get, cancel (while `ORDER_PLACED`/`PACKING`).
+* **Guest shopping** – no account needed:
+  * `POST /api/guest-sessions` → `{token, expiresAt}`: an anonymous cart session (not a login). Send it as
+    `X-Guest-Session` on `/api/cart/**`, `/api/checkout/**`, `POST /api/orders`, `POST /api/khqr/checkout` only.
+    Stored hashed; expires after 7 days idle / 30 days at most; `DELETE /api/guest-sessions/current` ends it.
+    Sending a login token and a guest session together is refused (400 `AMBIGUOUS_IDENTITY`); an expired session
+    gets 401 `GUEST_SESSION_EXPIRED`. Rate-limited per client address.
+  * A guest order belongs to no account (it is never merged into or attached to one, even with the same e-mail) and
+    is kept permanently. Its placement response carries a `guestAccessToken`; send it as `X-Order-Access` to
+    `/api/guest-orders/{id}` (confirmation), `/cancel`, `/khqr/verify`, `/khqr/cancel`. Expires after 2 days.
+  * Logging in shows only the account's own cart and orders; clients discard the guest session on login.
 * **Admin** `/api/admin/**` (role `ADMIN`, shown as its own *Admin API* group in Swagger) – dashboard stats, product CRUD with image upload to MinIO (including hidden products), order list and status updates. Used by the web admin panel.
 
 Errors share one JSON shape: `{timestamp,status,code,message,fieldErrors?,path}`.

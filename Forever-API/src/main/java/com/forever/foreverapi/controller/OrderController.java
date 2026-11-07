@@ -1,6 +1,7 @@
 package com.forever.foreverapi.controller;
 
 import com.forever.foreverapi.common.security.AuthUser;
+import com.forever.foreverapi.common.security.ShopperRef;
 import com.forever.foreverapi.common.response.PageResponse;
 import com.forever.foreverapi.model.dto.OrderDtos.OrderResponse;
 import com.forever.foreverapi.model.dto.OrderDtos.PlaceOrderRequest;
@@ -31,11 +32,11 @@ public class OrderController {
         this.orders = orders;
     }
 
-    @Operation(summary = "Place a cash-on-delivery order from my cart")
+    @Operation(summary = "Place a cash-on-delivery order from my cart (logged in, or guest via X-Guest-Session)")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public OrderResponse place(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody PlaceOrderRequest req) {
-        return orders.place(user.id(), req);
+    public OrderResponse place(ShopperRef shopper, @Valid @RequestBody PlaceOrderRequest req) {
+        return orders.place(shopper, req);
     }
 
     @Operation(summary = "My orders, newest first")

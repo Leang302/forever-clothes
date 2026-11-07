@@ -4,9 +4,12 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/router/routes.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/haptics.dart';
 import '../../../../core/widgets/network_image.dart';
 import '../../../wishlist/presentation/widgets/wishlist_heart_button.dart';
 import '../../domain/entities/product.dart';
+import 'quick_add_sheet.dart';
+import 'stock_widgets.dart';
 
 class ProductCard extends StatelessWidget {
   const ProductCard(this.product, {super.key, this.heroTagPrefix});
@@ -26,9 +29,10 @@ class ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final real = product.id != 0;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: product.id == 0
+      onTap: !real
           ? null
           : () => context.push(Routes.productPath(product.id), extra: _heroTag),
       child: Column(
@@ -40,17 +44,25 @@ class ProductCard extends StatelessWidget {
               children: [
                 // Skeleton placeholders all share id 0, so skip the Hero: with several
                 // shown at once (e.g. the loading grid) a shared tag would collide.
-                product.id == 0
+                !real
                     ? AppNetworkImage(product.cover, radius: 22)
                     : Hero(
                         tag: _heroTag,
                         child: AppNetworkImage(product.cover, radius: 22),
                       ),
-                if (product.id != 0)
+                if (real)
                   Positioned(
                     top: 8,
                     right: 8,
                     child: WishlistHeartButton(product: product, size: 34),
+                  ),
+                if (real && !product.inStock)
+                  const Positioned(left: 8, top: 10, child: OutOfStockBadge()),
+                if (real && product.canBuy)
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: _QuickAddButton(product: product),
                   ),
               ],
             ),
@@ -84,6 +96,42 @@ class ProductCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Round "+ bag" button on the card image that opens the quick-add sheet.
+/// Its own InkWell wins the tap, so the card's tap-to-detail is unaffected.
+class _QuickAddButton extends StatelessWidget {
+  const _QuickAddButton({required this.product});
+
+  final Product product;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.ink,
+      shape: const CircleBorder(),
+      child: InkWell(
+        key: Key('quick-add-${product.id}'),
+        customBorder: const CircleBorder(),
+        onTap: () {
+          Haptics.tap();
+          showQuickAddSheet(context, product);
+        },
+        child: Tooltip(
+          message: 'Quick add ${product.name} to cart',
+          child: const SizedBox(
+            width: 36,
+            height: 36,
+            child: Icon(
+              Icons.add_shopping_cart_rounded,
+              size: 18,
+              color: Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

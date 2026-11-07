@@ -16,6 +16,9 @@ abstract class CartLineDto with _$CartLineDto {
     String? image,
     required String size,
     required int quantity,
+
+    /// Units left for this line's size; null if the API did not say.
+    int? stock,
   }) = _CartLineDto;
 
   factory CartLineDto.fromJson(Map<String, dynamic> json) =>
@@ -48,6 +51,7 @@ extension CartDtoMapper on CartDto {
             image: l.image,
             size: l.size,
             quantity: l.quantity,
+            stock: l.stock,
           ),
         )
         .toList(),

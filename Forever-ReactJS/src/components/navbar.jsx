@@ -33,10 +33,14 @@ const Navbar = () => {
             <div className="flex items-center gap-6">
                <img onClick={()=>setShowSearch(!showSearch)} src={assets.search_icon} alt="Search" className='w-5 cursor-pointer' />
                <div className="group relative">
+                  {/* Only a real login gets the profile menu; guest shoppers (anonymous cart) see Login. */}
                   {user ? (
-                     <img src={assets.profile_icon} alt="Profile" className='w-5 cursor-pointer'/>
+                     <img src={assets.profile_icon} alt="Profile" data-testid="profile-menu" className='w-5 cursor-pointer'/>
                   ) : (
-                     <Link to={'/login'}><img src={assets.profile_icon} alt="Profile" className='w-5 cursor-pointer'/></Link>
+                     <Link to={'/login'} aria-label="Login" data-testid="nav-login" className='flex items-center gap-1.5 text-sm text-gray-700'>
+                        <img src={assets.profile_icon} alt="" className='w-5 cursor-pointer'/>
+                        <span className='hidden sm:inline'>Login</span>
+                     </Link>
                   )}
                   {user && (
                      <div className='group-hover:block hidden absolute dropdown-menu right-0 pt-4'>
@@ -61,7 +65,7 @@ const Navbar = () => {
                {!isAdmin && (
                   <Link to='/cart' className='relative'>
                      <img src={assets.cart_icon} alt="Cart" className='w-5 min-w-5' />
-                     <p className='absolute right-[-5px] bottom-[-5px] w-4 text-center leading-4 bg-black text-white aspect-square rounded-full text-[8px] '>{getCartCount()}</p>
+                     <p data-testid="cart-count" className='absolute right-[-5px] bottom-[-5px] w-4 text-center leading-4 bg-black text-white aspect-square rounded-full text-[8px] '>{getCartCount()}</p>
                   </Link>
                )}
                <img onClick={() => setVisible(true)} src={assets.menu_icon} alt="Menu" className='w-5 min-w-5 cursor-pointer sm:hidden' />

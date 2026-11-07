@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'playwright-report', 'test-results'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
@@ -36,5 +36,11 @@ export default [
       'no-unused-vars': 'warn', // Added this line to treat no-unused-vars as a warning
       'react/prop-types': 'off', // no PropTypes in this project (plain JS, no TypeScript)
     },
+  },
+  {
+    // Node-side code: the SSR server, Playwright config and E2E specs.
+    files: ['server.js', 'playwright.config.js', 'tailwind.config.js', 'e2e/**/*.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    rules: { 'react-hooks/rules-of-hooks': 'off' }, // Playwright fixtures call `use()`, not a React hook
   },
 ]

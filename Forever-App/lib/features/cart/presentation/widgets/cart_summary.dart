@@ -39,15 +39,22 @@ class CartSummary extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: bold ? AppColors.ink : AppColors.muted,
-              fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
-              fontSize: bold ? 18 : 15,
+          // Flexible + ellipsis: long labels ("Shipping · Express delivery",
+          // "Discount (LONGCOUPON)") or large accessibility text must not
+          // push the amount off-screen.
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: bold ? AppColors.ink : AppColors.muted,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+                fontSize: bold ? 18 : 15,
+              ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           Text(
             value,
             style: TextStyle(

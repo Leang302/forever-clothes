@@ -112,6 +112,13 @@ GoRouter appRouter(Ref ref) {
         builder: (_, state) =>
             OrderDetailScreen(orderId: int.parse(state.pathParameters['id']!)),
       ),
+      GoRoute(
+        path: Routes.guestOrder,
+        builder: (_, state) => OrderDetailScreen(
+          orderId: int.parse(state.pathParameters['id']!),
+          guest: true,
+        ),
+      ),
       GoRoute(path: Routes.wishlist, builder: (_, _) => const WishlistScreen()),
       GoRoute(
         path: Routes.addresses,

@@ -107,7 +107,7 @@ public class AdminSearchServiceImpl implements AdminSearchService {
             where.add("upper(o.coupon_code) = :coupon");
             params.put("coupon", coupon.trim().toUpperCase());
         }
-        String base = " from orders o join users u on u.id = o.user_id" + whereClause(where);
+        String base = " from orders o left join users u on u.id = o.user_id" + whereClause(where);
         return page(base, ORDER_SORTS.getOrDefault(sort, ORDER_SORTS.get("newest")), "o.id", params, page, size,
                 orders::findAllById, Order::getId, orderMapper::toResponse);
     }

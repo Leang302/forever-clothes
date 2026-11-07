@@ -7,6 +7,7 @@ import { Card, ClearFilters, Dropdown, Empty, ErrorText, Loading, MultiSelect, P
 import { money } from "../format";
 import { usePage, useUrlFilters, useUrlSearch } from "../table";
 import { useOnProductSaved, useOpenProduct } from "../productDrawer";
+import ConfirmDialog from "../../components/ConfirmDialog";
 
 const PAGE_SIZE = 10;
 const LOW_STOCK = 5;
@@ -97,6 +98,22 @@ const Products = () => {
       setVersion((v) => v + 1);
     } catch (e) {
       toast.error(e.message);
+    }
+  };
+
+  const [deleting, setDeleting] = useState(null); // product awaiting delete confirmation
+  const [removing, setRemoving] = useState(false);
+  const confirmDelete = async () => {
+    setRemoving(true);
+    try {
+      await api.adminDeleteProduct(deleting.id);
+      toast.success(`"${deleting.name}" deleted (removed from the shop)`);
+      setDeleting(null);
+      setVersion((v) => v + 1);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -203,12 +220,20 @@ const Products = () => {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => openProduct(p.id)}
-                        className="border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100 bg-white"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openProduct(p.id)}
+                          className="border border-gray-300 rounded px-3 py-1 text-gray-700 hover:bg-gray-100 bg-white"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleting(p)}
+                          className="border border-red-300 rounded px-3 py-1 text-red-600 hover:bg-red-50 bg-white"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -219,6 +244,19 @@ const Products = () => {
       </Card>
 
       <Pagination page={page} totalPages={data?.totalPages || 0} total={data?.totalElements} pageSize={data?.size} onChange={setPage} />
+
+      {deleting && (
+        <ConfirmDialog
+          title="Delete product?"
+          // The API's delete is a soft delete: the product is taken out of the shop (hidden) but kept so past
+          // orders still show it. It stays in this list as hidden and can be shown again with its switch.
+          message={`"${deleting.name}" will be removed from the shop. Past orders keep showing it; it stays here as hidden.`}
+          confirmLabel={removing ? 'Deleting...' : 'Delete product'}
+          cancelLabel="Cancel"
+          onCancel={() => !removing && setDeleting(null)}
+          onConfirm={() => !removing && confirmDelete()}
+        />
+      )}
     </>
   );
 };

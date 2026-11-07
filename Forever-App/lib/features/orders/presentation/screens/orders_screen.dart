@@ -14,6 +14,7 @@ import '../../../../core/widgets/state_views.dart';
 import '../../domain/entities/order.dart';
 import '../providers/order_providers.dart';
 import '../widgets/order_progress.dart';
+import '../widgets/payment_state_pill.dart';
 
 class OrdersScreen extends ConsumerWidget {
   const OrdersScreen({super.key});
@@ -228,7 +229,7 @@ class _OrderCard extends ConsumerWidget {
                     ),
                   ),
                   Text(
-                    formatPrice(item.price),
+                    formatPrice(item.price * item.quantity),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ],
@@ -248,10 +249,16 @@ class _OrderCard extends ConsumerWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text(
-                '${order.paymentMethod.label}${order.paid ? ' · paid' : ''}',
-                style: const TextStyle(color: AppColors.muted),
+              Flexible(
+                child: Text(
+                  order.paymentMethod.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.muted),
+                ),
               ),
+              const SizedBox(width: 8),
+              PaymentStatePill(order),
               const Spacer(),
               Text(
                 formatMoney(order.total),

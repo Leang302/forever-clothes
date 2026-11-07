@@ -101,6 +101,11 @@ public class CouponServiceImpl implements CouponService {
 
     @Transactional(readOnly = true)
     public BigDecimal discountFor(String rawCode, BigDecimal subtotal, Long userId) {
+        return discountFor(rawCode, subtotal, userId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal discountFor(String rawCode, BigDecimal subtotal, Long userId, String guestEmail) {
         String code = rawCode.trim().toUpperCase(Locale.ROOT);
         CouponRow c = db.sql(SELECT + " where upper(c.code) = :code").param("code", code).query(this::row).optional()
                 .orElseThrow(() -> invalid("COUPON_INVALID", "Coupon code \"" + code + "\" does not exist"));
@@ -116,9 +121,16 @@ public class CouponServiceImpl implements CouponService {
             throw invalid("COUPON_MIN_SUBTOTAL", "Spend at least $" + money(c.minSubtotal()) + " to use this coupon (you need $"
                     + money(c.minSubtotal().subtract(subtotal)) + " more)");
         }
-        if (userId != null && c.perCustomerLimit() != null) {
-            long usedByCustomer = db.sql("select count(*) from orders where user_id=:user and upper(coupon_code)=:code and status <> 'CANCELLED'")
-                    .param("user", userId).param("code", code).query(Long.class).single();
+        boolean guest = userId == null && guestEmail != null && !guestEmail.isBlank();
+        if (c.perCustomerLimit() != null && (userId != null || guest)) {
+            // A guest has no account, so the limit is applied per checkout e-mail across guest orders.
+            long usedByCustomer = userId != null
+                    ? db.sql("select count(*) from orders where user_id=:user and upper(coupon_code)=:code and status <> 'CANCELLED'")
+                            .param("user", userId).param("code", code).query(Long.class).single()
+                    : db.sql("select count(*) from orders where user_id is null and lower(email)=:email"
+                                    + " and upper(coupon_code)=:code and status <> 'CANCELLED'")
+                            .param("email", guestEmail.trim().toLowerCase(Locale.ROOT)).param("code", code)
+                            .query(Long.class).single();
             if (usedByCustomer >= c.perCustomerLimit()) {
                 throw invalid("COUPON_CUSTOMER_LIMIT", c.perCustomerLimit() == 1
                         ? "You have already used this coupon"

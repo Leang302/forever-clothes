@@ -23,6 +23,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   final _name = TextEditingController();
   final _description = TextEditingController();
   final _price = TextEditingController();
+  final _stock = TextEditingController();
+  final _imageUrl = TextEditingController();
+  final _imageUrls = <String>[];
   final _sizes = <String>{};
   final _images = <(String, Uint8List)>[];
   List<Map<String, dynamic>> _categories = [];
@@ -30,6 +33,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   String? _category;
   String? _subCategory;
   bool _bestseller = false;
+  bool _active = true;
   bool _busy = false;
   String? _error;
 
@@ -48,6 +52,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       _subCategory = '${product['subCategory']}';
       _sizes.addAll((product['sizes'] as List).cast<String>());
       _bestseller = product['bestseller'] == true;
+      _active = product['active'] != false;
     }
     _loadCategories();
   }
@@ -57,6 +62,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _name.dispose();
     _description.dispose();
     _price.dispose();
+    _stock.dispose();
+    _imageUrl.dispose();
     super.dispose();
   }
 
@@ -112,8 +119,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     try {
       final picked = await ImagePicker().pickMultiImage(imageQuality: 85);
       if (picked.isEmpty || !mounted) return;
-      if (_images.length + picked.length > 4) {
-        setState(() => _error = 'Select no more than four replacement images.');
+      if (_images.length + _imageUrls.length + picked.length > 4) {
+        setState(() => _error = 'A product can have at most 4 images.');
         return;
       }
       final additions = <(String, Uint8List)>[];
@@ -143,16 +150,47 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
   }
 
+  /// "S 4 · M 8" from the product's `stock` map.
+  String _currentStock() {
+    final stock = widget.product?['stock'];
+    if (stock is! Map || stock.isEmpty) return 'unknown';
+    return stock.entries.map((e) => '${e.key} ${e.value}').join(' · ');
+  }
+
+  /// Adds the typed image URL (http/https only, at most 4 images in total).
+  void _addImageUrl() {
+    final error = validateImageUrl(
+      _imageUrl.text,
+      existing: _imageUrls,
+      total: _images.length + _imageUrls.length,
+    );
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    setState(() {
+      _imageUrls.add(_imageUrl.text.trim());
+      _imageUrl.clear();
+      _error = null;
+    });
+  }
+
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
+    final imageCount = _images.length + _imageUrls.length;
     if (_category == null ||
         _subCategory == null ||
         _sizes.isEmpty ||
-        (!_editing && _images.isEmpty)) {
+        (!_editing && imageCount == 0)) {
       setState(
         () => _error =
-            'Choose a category, subcategory, size, and at least one image for a new product.',
+            'Choose a category, subcategory, size, and at least one image '
+            '(photo or URL) for a new product.',
       );
+      return;
+    }
+    if (imageCount > 4) {
+      setState(() => _error = 'A product can have at most 4 images.');
       return;
     }
     setState(() {
@@ -168,7 +206,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         MapEntry('category', _category!),
         MapEntry('subCategory', _subCategory!),
         MapEntry('bestseller', '$_bestseller'),
+        MapEntry('active', '$_active'),
+        // Blank on edit = keep each size's current stock.
+        if (_stock.text.trim().isNotEmpty)
+          MapEntry('stock', _stock.text.trim()),
         for (final size in _sizes) MapEntry('sizes', size),
+        for (final url in _imageUrls) MapEntry('imageUrls', url),
       ]);
       for (final image in _images) {
         form.files.add(
@@ -235,6 +278,29 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               validator: (v) => (double.tryParse(v ?? '') ?? 0) <= 0
                   ? 'Enter a price above zero'
                   : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const Key('product-stock'),
+              controller: _stock,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Stock quantity (per size)',
+                helperText: _editing
+                    ? 'Now: ${_currentStock()}. Leave blank to keep it; a '
+                          'number sets every size to it.'
+                    : 'Units of each size. Blank = 20 per size.',
+                helperMaxLines: 2,
+              ),
+              validator: (v) {
+                final t = v?.trim() ?? '';
+                if (t.isEmpty) return null;
+                final n = int.tryParse(t);
+                if (n == null || n < 0 || n > 100000) {
+                  return 'Enter a whole number from 0 to 100000';
+                }
+                return null;
+              },
             ),
             const AdminSectionHeading('Placement and sizing'),
             DropdownButtonFormField<String>(
@@ -309,11 +375,28 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 onChanged: (v) => setState(() => _bestseller = v),
               ),
             ),
+            AdminSurface(
+              padding: EdgeInsets.zero,
+              child: SwitchListTile(
+                key: const Key('product-active'),
+                title: const Text(
+                  'Active',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  _active
+                      ? 'Visible in the shop'
+                      : 'Hidden from shoppers (inactive)',
+                ),
+                value: _active,
+                onChanged: (v) => setState(() => _active = v),
+              ),
+            ),
             const AdminSectionHeading('Product photos'),
             Text(
               _editing
-                  ? 'Choosing new photos replaces all current photos.'
-                  : 'Choose 1 to 4 photos. Maximum 5 MB each.',
+                  ? 'Adding photos or URLs replaces all current photos (max 4).'
+                  : 'Choose 1 to 4 photos (max 5 MB each) and/or image URLs.',
               style: const TextStyle(
                 color: AppColors.secondaryText,
                 fontSize: 13,
@@ -376,6 +459,62 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               icon: const Icon(Icons.add_photo_alternate_outlined),
               label: Text(_editing ? 'Replace images' : 'Choose images'),
             ),
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const Key('product-image-url'),
+                    controller: _imageUrl,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Or add an image URL (https://…)',
+                    ),
+                    onSubmitted: (_) => _addImageUrl(),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 56,
+                  child: OutlinedButton(
+                    key: const Key('product-add-image-url'),
+                    onPressed: _busy ? null : _addImageUrl,
+                    child: const Text('Add'),
+                  ),
+                ),
+              ],
+            ),
+            for (var i = 0; i < _imageUrls.length; i++)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    _imageUrls[i],
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      width: 48,
+                      height: 48,
+                      color: AppColors.fill,
+                      child: const Icon(Icons.link, size: 20),
+                    ),
+                  ),
+                ),
+                title: Text(
+                  _imageUrls[i],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: IconButton(
+                  tooltip: 'Remove URL',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _imageUrls.removeAt(i)),
+                ),
+              ),
             if (_error != null)
               AdminSurface(
                 child: Row(
@@ -420,4 +559,24 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       ),
     );
   }
+}
+
+/// Null when [raw] is an acceptable product image URL, else the reason.
+/// Mirrors the API's rule: http/https only, at most 4 images per product.
+String? validateImageUrl(
+  String raw, {
+  List<String> existing = const [],
+  int total = 0,
+}) {
+  final value = raw.trim();
+  if (value.isEmpty) return 'Enter an image URL.';
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      !(uri.scheme == 'http' || uri.scheme == 'https') ||
+      uri.host.isEmpty) {
+    return 'Image URLs must start with http:// or https://';
+  }
+  if (existing.contains(value)) return 'That image URL is already added.';
+  if (total >= 4) return 'A product can have at most 4 images.';
+  return null;
 }

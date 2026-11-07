@@ -17,6 +17,13 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Full width is explicit here rather than via the theme's minimumSize
+    // (an infinite min width breaks any button placed in a Row). Inside a Row
+    // wrap AppButton in Expanded, as every caller does.
+    return SizedBox(width: double.infinity, child: _button());
+  }
+
+  Widget _button() {
     return FilledButton(
       onPressed: loading ? null : onPressed,
       child: AnimatedSwitcher(

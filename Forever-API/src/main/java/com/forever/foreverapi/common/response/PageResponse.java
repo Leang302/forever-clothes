@@ -14,8 +14,13 @@ public record PageResponse<T>(
         boolean last) {
 
     public static <E, T> PageResponse<T> of(Page<E> page, Function<E, T> mapper) {
+        return ofContent(page, page.getContent().stream().map(mapper).toList());
+    }
+
+    /** For mappers that convert the whole page at once (e.g. to batch a lookup). */
+    public static <E, T> PageResponse<T> ofContent(Page<E> page, List<T> content) {
         return new PageResponse<>(
-                page.getContent().stream().map(mapper).toList(),
+                content,
                 page.getNumber(),
                 page.getSize(),
                 page.getTotalElements(),

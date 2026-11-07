@@ -10,10 +10,13 @@ const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).p
 /**
  * KHQR card for a pending order. Polls the API until Bakong shows the payment (onPaid), or cancels the order
  * when the customer gives up or the code expires (onClosed('cancelled' | 'expired')).
+ * `accessToken` (guest orders only): the order's access token; the guest-orders endpoints are used with it.
  */
-export default function KhqrPayment({ payment, onPaid, onClosed }) {
+export default function KhqrPayment({ payment, accessToken, onPaid, onClosed }) {
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(payment.expiresAt));
   const [closing, setClosing] = useState(false);
+  // Result of the most recent verify poll: { status: 'PENDING' | 'UNREACHABLE', at }.
+  const [lastCheck, setLastCheck] = useState(null);
   // Set once the dialog has an outcome, so polling and cancelling never both report one.
   const finished = useRef(false);
 
@@ -31,27 +34,36 @@ export default function KhqrPayment({ payment, onPaid, onClosed }) {
         await wait(POLL_MS);
         if (stopped || finished.current) return;
         try {
-          const result = await api.verifyKhqr(payment.orderId);
-          if (!stopped && result.paid) finish(true);
+          const result = accessToken
+            ? await api.guestVerifyKhqr(payment.orderId, accessToken)
+            : await api.verifyKhqr(payment.orderId);
+          if (stopped) return;
+          // Success is ONLY ever reported from the server's verify result, never assumed client-side.
+          if (result.paid) finish(true);
+          else if (result.status === 'CANCELLED') finish(false, 'expired');
+          else setLastCheck({ status: result.status || 'PENDING', at: new Date() });
         } catch {
           // Bakong can be briefly unreachable; keep checking until the code expires.
+          if (!stopped) setLastCheck({ status: 'UNREACHABLE', at: new Date() });
         }
       }
     })();
     return () => { stopped = true; };
-  }, [payment.orderId, finish]);
+  }, [payment.orderId, accessToken, finish]);
 
   const cancel = useCallback(async (reason) => {
     if (finished.current || closing) return;
     setClosing(true);
     try {
       // The API checks Bakong first, so a payment made at the last second is kept, not cancelled.
-      const result = await api.cancelKhqr(payment.orderId);
+      const result = accessToken
+        ? await api.guestCancelKhqr(payment.orderId, accessToken)
+        : await api.cancelKhqr(payment.orderId);
       finish(result.paid, reason);
     } catch {
       finish(false, reason);
     }
-  }, [closing, finish, payment.orderId]);
+  }, [closing, finish, payment.orderId, accessToken]);
 
   useEffect(() => {
     const timer = setInterval(() => setSecondsLeft(secondsUntil(payment.expiresAt)), 1000);
@@ -81,9 +93,16 @@ export default function KhqrPayment({ payment, onPaid, onClosed }) {
           <img src={payment.qrImage} alt="KHQR payment code" className="mx-auto h-56 w-56 p-3" />
         </div>
         <p className="mt-4 text-sm text-gray-600">Scan with Bakong or any Cambodian banking app (ABA, ACLEDA, Wing…).</p>
-        <p className="mt-1 text-xs text-gray-400" aria-live="polite">
+        <p className="mt-1 text-xs text-gray-400" aria-live="polite" data-testid="khqr-status">
           {closing ? 'Closing…' : `Waiting for payment · code expires in ${clock(secondsLeft)}`}
         </p>
+        {lastCheck && !closing && (
+          <p className="mt-1 text-xs text-amber-600" data-testid="khqr-last-check">
+            {lastCheck.status === 'UNREACHABLE'
+              ? 'Could not check the payment just now — retrying…'
+              : `Not paid yet (checked ${lastCheck.at.toLocaleTimeString()})`}
+          </p>
+        )}
         <button type="button" onClick={() => cancel('cancelled')} disabled={closing} className="mt-5 w-full rounded-lg border px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:text-gray-400">Cancel payment</button>
       </div>
     </div>

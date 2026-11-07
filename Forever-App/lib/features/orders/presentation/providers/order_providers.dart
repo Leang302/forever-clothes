@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../../core/network/network_providers.dart';
@@ -20,12 +21,43 @@ OrderRepository orderRepository(Ref ref) =>
 Future<List<ShippingOption>> checkoutOptions(Ref ref) =>
     ref.watch(orderRepositoryProvider).checkoutOptions();
 
-/// One of the signed-in user's orders, by id.
-@riverpod
-Future<Order> orderDetail(Ref ref, int orderId) =>
-    ref.watch(orderRepositoryProvider).getById(orderId);
+/// Access tokens (`guestAccessToken`) of the guest orders placed in THIS app
+/// run, by order id.
+///
+/// Deliberately memory-only — never persisted, logged, or put in a route —
+/// so on a shared device a later user can't open a previous guest's order:
+/// after an app restart (or a login/logout) they are gone and the shopper
+/// relies on the confirmation e-mail instead.
+@Riverpod(keepAlive: true)
+class GuestOrderAccess extends _$GuestOrderAccess {
+  @override
+  Map<int, String> build() {
+    // Any login/logout forgets them.
+    ref.watch(currentUserProvider.select((u) => u?.id));
+    return const {};
+  }
 
-/// Order history of the signed-in user.
+  void remember(int orderId, String accessToken) =>
+      state = {...state, orderId: accessToken};
+
+  String? tokenFor(int orderId) => state[orderId];
+}
+
+/// One order, by id: the signed-in user's own (account endpoints), or a
+/// guest order placed in this app run (via its in-memory access token).
+@riverpod
+Future<Order> orderDetail(Ref ref, int orderId) {
+  final repo = ref.watch(orderRepositoryProvider);
+  final guestAccess = ref.watch(
+    guestOrderAccessProvider.select((m) => m[orderId]),
+  );
+  return guestAccess != null
+      ? repo.getGuestOrder(orderId, guestAccess)
+      : repo.getById(orderId);
+}
+
+/// Order history of the signed-in user (guests have none: their orders are
+/// reachable only through the in-memory [GuestOrderAccess] tokens).
 @Riverpod(keepAlive: true)
 class OrdersController extends _$OrdersController {
   @override
@@ -35,8 +67,21 @@ class OrdersController extends _$OrdersController {
     return ref.watch(orderRepositoryProvider).list();
   }
 
+  OrderRepository get _repo => ref.read(orderRepositoryProvider);
+
+  bool get _signedIn => ref.read(currentUserProvider) != null;
+
   Future<void> refresh() async {
-    state = AsyncData(await ref.read(orderRepositoryProvider).list());
+    if (!_signedIn) {
+      state = const AsyncData([]);
+      return;
+    }
+    state = AsyncData(await _repo.list());
+  }
+
+  void _rememberGuestAccess(int orderId, String? accessToken) {
+    if (accessToken == null) return;
+    ref.read(guestOrderAccessProvider.notifier).remember(orderId, accessToken);
   }
 
   Future<Order> place({
@@ -45,19 +90,20 @@ class OrdersController extends _$OrdersController {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) async {
-    final order = await ref
-        .read(orderRepositoryProvider)
-        .place(
-          address: address,
-          paymentMethod: paymentMethod,
-          couponCode: couponCode,
-          shippingMethod: shippingMethod,
-          cartItemIds: cartItemIds,
-        );
+    final placed = await _repo.place(
+      address: address,
+      paymentMethod: paymentMethod,
+      couponCode: couponCode,
+      shippingMethod: shippingMethod,
+      cartItemIds: cartItemIds,
+      idempotencyKey: idempotencyKey,
+    );
+    _rememberGuestAccess(placed.order.id, placed.guestAccessToken);
     ref.invalidate(cartControllerProvider); // the server emptied the cart
     await refresh();
-    return order;
+    return placed.order;
   }
 
   /// The order takes its lines out of the cart until it is paid or cancelled.
@@ -66,34 +112,49 @@ class OrdersController extends _$OrdersController {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) async {
-    final payment = await ref
-        .read(orderRepositoryProvider)
-        .startKhqr(
-          address,
-          couponCode: couponCode,
-          shippingMethod: shippingMethod,
-          cartItemIds: cartItemIds,
-        );
+    final payment = await _repo.startKhqr(
+      address,
+      couponCode: couponCode,
+      shippingMethod: shippingMethod,
+      cartItemIds: cartItemIds,
+      idempotencyKey: idempotencyKey,
+    );
+    _rememberGuestAccess(payment.orderId, payment.guestAccessToken);
     ref.invalidate(cartControllerProvider);
     return payment;
   }
 
+  String? _guestToken(int orderId) =>
+      ref.read(guestOrderAccessProvider.notifier).tokenFor(orderId);
+
   Future<bool> verifyKhqr(int orderId) async {
-    final paid = await ref.read(orderRepositoryProvider).verifyKhqr(orderId);
+    final token = _guestToken(orderId);
+    final paid = token != null
+        ? await _repo.verifyGuestKhqr(orderId, token)
+        : await _repo.verifyKhqr(orderId);
     if (paid) await refresh();
     return paid;
   }
 
   Future<bool> cancelKhqr(int orderId) async {
-    final paid = await ref.read(orderRepositoryProvider).cancelKhqr(orderId);
+    final token = _guestToken(orderId);
+    final paid = token != null
+        ? await _repo.cancelGuestKhqr(orderId, token)
+        : await _repo.cancelKhqr(orderId);
     ref.invalidate(cartControllerProvider); // cancelling put the lines back
     if (paid) await refresh();
     return paid;
   }
 
   Future<void> cancel(int id) async {
-    await ref.read(orderRepositoryProvider).cancel(id);
+    final token = _guestToken(id);
+    if (token != null) {
+      await _repo.cancelGuestOrder(id, token);
+    } else {
+      await _repo.cancel(id);
+    }
     await refresh();
   }
 }

@@ -22,25 +22,29 @@ Future<bool> showKhqrPaymentSheet(
       isDismissible: false,
       enableDrag: false,
       backgroundColor: AppColors.surface,
-      builder: (_) => _KhqrPaymentSheet(payment: payment),
+      builder: (_) => KhqrPaymentSheet(payment: payment),
     ) ??
     false;
 
-class _KhqrPaymentSheet extends ConsumerStatefulWidget {
-  const _KhqrPaymentSheet({required this.payment});
+/// Public so integration tests can read the payment being shown.
+class KhqrPaymentSheet extends ConsumerStatefulWidget {
+  const KhqrPaymentSheet({super.key, required this.payment});
 
   final KhqrPayment payment;
 
   @override
-  ConsumerState<_KhqrPaymentSheet> createState() => _KhqrPaymentSheetState();
+  ConsumerState<KhqrPaymentSheet> createState() => _KhqrPaymentSheetState();
 }
 
-class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
+class _KhqrPaymentSheetState extends ConsumerState<KhqrPaymentSheet> {
   late final _qr = widget.payment.qrBytes;
   Timer? _clock;
   bool _closing = false;
   // Set once there is an outcome, so polling and cancelling never both pop the sheet.
   bool _finished = false;
+
+  /// Set only when the API reports the order PAID (verify or cancel-check).
+  bool _paid = false;
 
   Duration get _left {
     final left = widget.payment.expiresAt.difference(DateTime.now());
@@ -73,7 +77,10 @@ class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
       await Future<void>.delayed(_pollEvery);
       if (_finished) return;
       try {
-        if (await orders.verifyKhqr(widget.payment.orderId)) _finish(true);
+        if (await orders.verifyKhqr(widget.payment.orderId)) {
+          await _showPaidThenClose();
+          return;
+        }
       } catch (_) {
         // Bakong can be briefly unreachable; keep checking until the code expires.
       }
@@ -81,7 +88,7 @@ class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
   }
 
   Future<void> _cancel() async {
-    if (_finished || _closing) return;
+    if (_finished || _closing || _paid) return;
     setState(() => _closing = true);
     var paid = false;
     try {
@@ -90,7 +97,20 @@ class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
           .read(ordersControllerProvider.notifier)
           .cancelKhqr(widget.payment.orderId);
     } catch (_) {}
-    _finish(paid);
+    if (paid) {
+      await _showPaidThenClose();
+    } else {
+      _finish(false);
+    }
+  }
+
+  /// Briefly confirms the payment in the sheet before handing back to checkout.
+  Future<void> _showPaidThenClose() async {
+    if (_finished || !mounted) return;
+    _clock?.cancel();
+    setState(() => _paid = true);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    _finish(true);
   }
 
   void _finish(bool paid) {
@@ -124,7 +144,7 @@ class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
                   const Spacer(),
                   IconButton(
                     tooltip: 'Cancel payment',
-                    onPressed: _closing ? null : _cancel,
+                    onPressed: _closing || _paid ? null : _cancel,
                     icon: const Icon(Icons.close_rounded),
                   ),
                 ],
@@ -210,17 +230,36 @@ class _KhqrPaymentSheetState extends ConsumerState<_KhqrPaymentSheet> {
                 style: TextStyle(color: AppColors.secondaryText),
               ),
               const SizedBox(height: 4),
-              Text(
-                _closing
-                    ? 'Closing…'
-                    : 'Waiting for payment · code expires in $minutes:$seconds',
-                style: const TextStyle(color: AppColors.muted, fontSize: 13),
-              ),
+              if (_paid)
+                const Row(
+                  key: Key('khqr-paid'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: AppColors.success),
+                    SizedBox(width: 8),
+                    Text(
+                      'Payment received',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text(
+                  _closing
+                      ? 'Closing…'
+                      : 'Awaiting payment · code expires in $minutes:$seconds',
+                  key: const Key('khqr-pending'),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: _closing ? null : _cancel,
+                  onPressed: _closing || _paid ? null : _cancel,
                   child: const Text('Cancel payment'),
                 ),
               ),

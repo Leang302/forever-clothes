@@ -161,6 +161,7 @@ const Orders = () => {
               <tr>
                 <SortTh label="Order" sortKey="date" sort={sort} onSort={onSort} />
                 <th className="px-4 py-3 font-normal hidden md:table-cell">Customer</th>
+                <th className="px-4 py-3 font-normal hidden lg:table-cell">Phone</th>
                 <th className="px-4 py-3 font-normal hidden lg:table-cell">Payment</th>
                 <SortTh label="Total" sortKey="total" sort={sort} onSort={onSort} />
                 <SortTh label="Status" sortKey="status" sort={sort} onSort={onSort} />
@@ -184,6 +185,7 @@ const Orders = () => {
                           {o.address.city}, {o.address.country}
                         </p>
                       </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">{o.address.phone}</td>
                       <td className="px-4 py-3 hidden lg:table-cell">{paymentLabel(o.paymentMethod)}</td>
                       <td className="px-4 py-3 font-medium">
                         {money(o.total)}
@@ -211,7 +213,7 @@ const Orders = () => {
                     </tr>
                     {openId === o.id && (
                       <tr className="bg-gray-50">
-                        <td colSpan={5} className="px-4 py-4">
+                        <td colSpan={6} className="px-4 py-4">
                           {o.status === 'CANCELLED' && (
                             <p className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                               Cancelled by {o.cancelledBy === 'ADMIN' ? 'the store' : o.cancelledBy === 'CUSTOMER' ? 'the customer' : 'unknown'}
@@ -220,17 +222,34 @@ const Orders = () => {
                           )}
                           <div className="grid md:grid-cols-2 gap-6">
                             <div className="flex flex-col gap-3">
-                              {o.items.map((i, idx) => (
-                                <div key={idx} className="flex items-center gap-3">
-                                  <img src={i.image} alt="" className="w-12 h-14 object-cover rounded" />
-                                  <div className="text-sm">
-                                    <p className="font-medium">{i.name}</p>
-                                    <p className="text-gray-500">
-                                      {money(i.price)} × {i.quantity} · Size {i.size}
-                                    </p>
-                                  </div>
-                                </div>
-                              ))}
+                              <table className="w-full text-sm" data-testid={`order-${o.id}-items`}>
+                                <thead className="text-left text-xs text-gray-500">
+                                  <tr>
+                                    <th className="py-1 font-normal">Item</th>
+                                    <th className="py-1 font-normal text-right">Qty</th>
+                                    <th className="py-1 font-normal text-right">Unit price</th>
+                                    <th className="py-1 font-normal text-right">Subtotal</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {o.items.map((i, idx) => (
+                                    <tr key={idx} className="border-t border-gray-200">
+                                      <td className="py-2 pr-2">
+                                        <div className="flex items-center gap-3">
+                                          <img src={i.image} alt="" className="w-10 h-12 object-cover rounded" />
+                                          <div>
+                                            <p className="font-medium">{i.name}</p>
+                                            <p className="text-xs text-gray-500">Size {i.size}</p>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="py-2 text-right">{i.quantity}</td>
+                                      <td className="py-2 text-right">{money(i.price)}</td>
+                                      <td className="py-2 text-right font-medium">{money(Number(i.price) * i.quantity)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                               <p className="text-sm text-gray-500">
                                 Items {money(o.itemsAmount)}
                                 {Number(o.discount) > 0 && ` − discount ${money(o.discount)}${o.couponCode ? ` (${o.couponCode})` : ''}`}

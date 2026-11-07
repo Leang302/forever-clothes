@@ -16,7 +16,14 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<AppUser?> restoreSession() async {
     if (!_tokens.hasSession) return null;
     try {
-      return (await _remote.me()).toEntity();
+      final me = await _remote.me();
+      if (me.role == 'GUEST') {
+        // Left over from the retired guest *login*: guests are anonymous cart
+        // sessions now, never a login. Treat as logged out.
+        await _tokens.clear();
+        return null;
+      }
+      return me.toEntity();
     } on AppException catch (e) {
       if (e.isUnauthorized || e.statusCode == 403) {
         await _tokens.clear();

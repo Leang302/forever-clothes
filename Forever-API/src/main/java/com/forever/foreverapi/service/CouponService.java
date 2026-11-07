@@ -19,5 +19,8 @@ public interface CouponService {
      */
     BigDecimal discountFor(String code, BigDecimal subtotal, Long userId);
 
+    /** As above; for a guest (userId null) the per-customer limit is applied to {@code guestEmail}. */
+    BigDecimal discountFor(String code, BigDecimal subtotal, Long userId, String guestEmail);
+
     CouponPreview preview(String code, BigDecimal subtotal, Long userId);
 }

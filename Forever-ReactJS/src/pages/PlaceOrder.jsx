@@ -6,8 +6,9 @@ import CartTotal from "../components/CartTotal";
 import KhqrPayment from "../components/KhqrPayment";
 import Title from "../components/Title";
 import { ShopContext } from "../context/ShopContext";
-import { api } from "../api/client";
+import { api, orderAccess } from "../api/client";
 import { email, text, validate, z } from "@/lib/validation";
+import { lineProblem } from "../lib/stock";
 
 // Same rules as OrderDtos.AddressDto (order address) and CustomerDtos.AddressRequest (saved address label) on the API.
 const addressSchema = z.object({
@@ -28,6 +29,14 @@ const toFormErrors = (fieldErrors) => Object.fromEntries(Object.entries(fieldErr
   const name = key.replace(/^address\./, '');
   return [name === 'label' ? 'addressLabel' : name, message];
 }));
+
+// crypto.randomUUID only exists in secure contexts (https / localhost); a plain-http LAN deployment still
+// needs a key, so fall back to 128 random bits.
+const newIdempotencyKey = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+};
 
 const inputClass = "border border-gray-300 rounded py-1.5 px-3.5 w-full";
 const fieldClass = (invalid) => `border ${invalid ? 'border-red-500' : 'border-gray-300'} rounded py-1.5 px-3.5 w-full`;
@@ -52,12 +61,36 @@ const PlaceOrder = () => {
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [saveAddress, setSaveAddress] = useState(false);
   const [addressLabel, setAddressLabel] = useState('Home');
+  // Not logged in = guest checkout: an EMPTY form (never prefilled with made-up data), no saved addresses.
+  const isGuest = !user;
   const [first, ...rest] = (user?.name || '').split(' ');
   const [form, setForm] = useState({
     firstName: first || '', lastName: rest.join(' '), email: user?.email || '', street: '',
     city: '', state: '', zipcode: '', country: '', phone: user?.phone || '',
   });
   const formRef = useRef(null);
+  // Idempotency key policy: one key per set of checkout details. Retrying the SAME details (timeout, double
+  // submit, retry after an error) resends the same key, so the server returns the original order / the same
+  // KHQR code instead of creating a duplicate. If the shopper changes any detail after an attempt, a NEW
+  // key is used (reusing the old one would be rejected with 409 IDEMPOTENCY_KEY_MISMATCH). After a KHQR
+  // order is cancelled/expired the key is retired too, since replaying it would hit that cancelled order.
+  const attemptRef = useRef(null);
+  if (attemptRef.current === null) attemptRef.current = { key: newIdempotencyKey(), fingerprint: null };
+  const keyFor = (fingerprint) => {
+    const attempt = attemptRef.current;
+    if (attempt.fingerprint !== null && attempt.fingerprint !== fingerprint) {
+      attemptRef.current = { key: newIdempotencyKey(), fingerprint };
+    } else {
+      attempt.fingerprint = fingerprint;
+    }
+    return attemptRef.current.key;
+  };
+  const retireKey = () => { attemptRef.current = { key: newIdempotencyKey(), fingerprint: null }; };
+  // Guards against a second submit before React has re-rendered the disabled button.
+  const submitting = useRef(false);
+  // Last order error, shown next to the submit button (in addition to the toast).
+  const [orderError, setOrderError] = useState(null);
+  const blockedItems = checkoutItems.filter((item) => lineProblem(item));
   const [errors, setErrors] = useState({});
   // Errors only show (and update while typing) once the order has been submitted.
   const [submitted, setSubmitted] = useState(false);
@@ -75,7 +108,8 @@ const PlaceOrder = () => {
 
   useEffect(() => {
     loadCart();
-    Promise.all([api.addresses(), api.checkoutOptions()]).then(([saved, options]) => {
+    // Saved addresses are an account feature; a guest only needs the checkout options.
+    Promise.all([isGuest ? [] : api.addresses(), api.checkoutOptions()]).then(([saved, options]) => {
       setAddresses(saved);
       setShippingOptions(options.shippingMethods);
       if (saved.length > 0) {
@@ -86,7 +120,7 @@ const PlaceOrder = () => {
         setSelectedAddressId(address.id);
       }
     }).catch(() => {});
-  }, [loadCart]);
+  }, [loadCart, isGuest]);
 
   const onChange = (e) => {
     setSelectedAddressId(null);
@@ -105,7 +139,14 @@ const PlaceOrder = () => {
       focusFirstError();
       return;
     }
+    if (blockedItems.length) {
+      setOrderError('Some items have less stock than the quantity you picked. Go back to your cart to adjust them.');
+      return;
+    }
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(true);
+    setOrderError(null);
     try {
       if (saveAddress) {
         const saved = await api.addAddress({ label: addressLabel, ...form });
@@ -113,27 +154,51 @@ const PlaceOrder = () => {
         setSelectedAddressId(saved.id);
         setSaveAddress(false);
       }
-      const request = { address: form, paymentMethod, shippingMethod, couponCode: couponCode.trim() || null, cartItemIds: pickedIds.length ? checkoutItems.map((item) => item.id) : null };
+      const details = { address: form, paymentMethod, shippingMethod, couponCode: couponCode.trim() || null, cartItemIds: pickedIds.length ? checkoutItems.map((item) => item.id) : null };
+      const request = { ...details, idempotencyKey: keyFor(JSON.stringify(details)) };
       if (paymentMethod === 'KHQR') {
-        setKhqrPayment(await api.khqrCheckout(request));
+        const payment = await api.khqrCheckout(request);
+        // Guest order: its access token (for polling / cancelling / the confirmation) stays in this tab only.
+        orderAccess.set(payment.orderId, payment.guestAccessToken);
+        setKhqrPayment(payment);
         await loadCart(); // the order took its lines out of the cart; cancelling puts them back
         return;
       }
       const order = await api.placeOrder(request);
+      orderAccess.set(order.id, order.guestAccessToken);
       await loadCart();
-      toast.success('Order placed successfully');
+      toast.success('Order placed — pay on delivery');
       navigate(`/order-confirmation/${order.id}`);
     } catch (e) {
-      toast.error(e.message);
+      let message = e.message;
+      if (e.code === 'IDEMPOTENCY_KEY_MISMATCH') {
+        // Shouldn't happen with keyFor(), but if it does the old key is unusable: start a fresh attempt.
+        retireKey();
+        message = 'Your checkout details changed since your last attempt. Please check them and place the order again.';
+      } else if (e.code === 'ORDER_ALREADY_PAID') {
+        retireKey();
+        message = isGuest
+          ? 'This order has already been paid — no need to pay again. Check your email for the confirmation.'
+          : 'This order has already been paid. You can find it under My orders — no need to pay again.';
+      } else if (e.code === 'ORDER_NOT_PENDING') {
+        retireKey();
+        message = 'That payment attempt was cancelled. Press the button again to start a new one.';
+      } else if (e.code === 'OUT_OF_STOCK') {
+        loadCart(); // refresh the lines' stock so the problem shows on the cart
+      }
+      setOrderError(message);
+      toast.error(message);
       if (e.fieldErrors) {
         setErrors(toFormErrors(e.fieldErrors));
         focusFirstError();
       }
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
 
+  // Only called by KhqrPayment after the API's verify endpoint reported paid = true.
   const onKhqrPaid = useCallback(() => {
     const orderId = khqrPayment.orderId;
     setKhqrPayment(null);
@@ -143,6 +208,8 @@ const PlaceOrder = () => {
 
   const onKhqrClosed = useCallback((reason) => {
     setKhqrPayment(null);
+    // The cancelled/expired order owns the old key; a new attempt needs a new one.
+    attemptRef.current = { key: newIdempotencyKey(), fingerprint: null };
     loadCart();
     toast.info(reason === 'expired'
       ? 'The KHQR code expired. Your items are back in your cart'
@@ -230,15 +297,17 @@ const PlaceOrder = () => {
           {field('country', 'Country')}
         </div>
         {field('phone', 'Phone number', 'tel')}
-        <label className="mt-2 flex items-center gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={saveAddress} onChange={(e) => {
-            setSaveAddress(e.target.checked);
-            if (e.target.checked) setSelectedAddressId(null);
-            revalidate(form, e.target.checked);
-          }} />
-          Save this address for next time
-        </label>
-        {saveAddress && (
+        {!isGuest && (
+          <label className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" checked={saveAddress} onChange={(e) => {
+              setSaveAddress(e.target.checked);
+              if (e.target.checked) setSelectedAddressId(null);
+              revalidate(form, e.target.checked);
+            }} />
+            Save this address for next time
+          </label>
+        )}
+        {!isGuest && saveAddress && (
           <div className="w-full">
             <input value={addressLabel} onChange={(e) => { setAddressLabel(e.target.value); revalidate(form, saveAddress, e.target.value); }}
               className={fieldClass(errors.addressLabel)} maxLength={50} placeholder="Address label, e.g. Home" {...errorProps('addressLabel')} />
@@ -285,14 +354,23 @@ const PlaceOrder = () => {
               </button>
             ))}
           </div>
+          {blockedItems.length > 0 && (
+            <p role="alert" className="mt-6 max-w-sm text-sm text-red-600">
+              {blockedItems.map((item) => `${item.name}: ${lineProblem(item)}`).join(' ')}{' '}
+              <button type="button" onClick={() => navigate('/cart')} className="underline">Back to cart</button>
+            </p>
+          )}
+          {orderError && (
+            <p role="alert" data-testid="order-error" className="mt-6 max-w-sm text-sm text-red-600">{orderError}</p>
+          )}
           <div className="w-full text-end mt-8 ">
-            <button type="submit" disabled={busy || checkoutItems.length === 0} className="uppercase text-sm bg-black text-white px-16 py-5 rounded disabled:bg-gray-400">
+            <button type="submit" disabled={busy || checkoutItems.length === 0 || blockedItems.length > 0} className="uppercase text-sm bg-black text-white px-16 py-5 rounded disabled:bg-gray-400">
               {busy ? 'Processing...' : paymentMethod === 'KHQR' ? 'Pay with KHQR' : 'Place order'}
             </button>
           </div>
         </div>
       </div>
-      {khqrPayment && <KhqrPayment payment={khqrPayment} onPaid={onKhqrPaid} onClosed={onKhqrClosed} />}
+      {khqrPayment && <KhqrPayment payment={khqrPayment} accessToken={khqrPayment.guestAccessToken} onPaid={onKhqrPaid} onClosed={onKhqrClosed} />}
     </form>
   );
 };

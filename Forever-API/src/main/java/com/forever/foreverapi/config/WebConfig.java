@@ -9,10 +9,21 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
+    static {
+        // Resolved from the request credentials, not a query parameter: keep it out of the OpenAPI docs.
+        org.springdoc.core.utils.SpringDocUtils.getConfig()
+                .addRequestWrapperToIgnore(com.forever.foreverapi.common.security.ShopperRef.class);
+    }
+
     private final AppProperties props;
 
     public WebConfig(AppProperties props) {
         this.props = props;
+    }
+
+    @Override
+    public void addArgumentResolvers(java.util.List<org.springframework.web.method.support.HandlerMethodArgumentResolver> resolvers) {
+        resolvers.add(new ShopperArgumentResolver());
     }
 
     @Override

@@ -139,6 +139,10 @@ public class AuthServiceImpl implements AuthService {
             throw ApiException.unauthorized("INVALID_REFRESH_TOKEN", "Refresh token expired or revoked");
         }
         User user = stored.getUser();
+        if (user.getRole() == Role.GUEST) {
+            // Retired throwaway guest accounts: guests now shop with anonymous cart sessions, never a login.
+            throw ApiException.unauthorized("INVALID_REFRESH_TOKEN", "Refresh token expired or revoked");
+        }
         if (!user.isEnabled()) {
             throw ApiException.forbidden("ACCOUNT_DISABLED", "This account has been disabled");
         }

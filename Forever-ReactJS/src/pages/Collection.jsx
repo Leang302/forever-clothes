@@ -1,10 +1,11 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ShopContext } from "../context/ShopContext";
 import { assets } from "../assets/frontend_assets/assets";
 import { api } from "../api/client";
 import Title from "../components/Title";
 import ProductGridSection from "../components/ProductGridSection";
+import { useSSRData } from "../context/SSRDataContext";
 
 const PAGE_SIZE = 20;
 const SORTS = { relevant: 'relevant', 'low-high': 'price_asc', 'high-low': 'price_desc' };
@@ -34,13 +35,18 @@ const Collection = () => {
     );
   const [options, setOptions] = useState({ categories: ['Men', 'Women', 'Kids'], subCategories: ['Topwear', 'Bottomwear', 'Winterwear'] });
 
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(null);
+  // Seeded from the server-rendered product list (same URL, so the same query) when present, so the first
+  // paint already has real products instead of "Loading...".
+  const ssr = useSSRData();
+  const ssrProducts = ssr?.route === 'collection' ? ssr.products : null;
+  const [items, setItems] = useState(ssrProducts?.content || []);
+  const [total, setTotal] = useState(ssrProducts?.totalElements ?? null);
   const [page, setPage] = useState(0);
-  const [last, setLast] = useState(true);
-  const [firstLoad, setFirstLoad] = useState(true); // only the very first load replaces the grid
+  const [last, setLast] = useState(ssrProducts ? ssrProducts.last : true);
+  const [firstLoad, setFirstLoad] = useState(!ssrProducts); // only the very first load replaces the grid
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const skipFirstFetch = useRef(Boolean(ssrProducts));
 
   const q = showSearch ? search.trim() : '';
   const filterKey = JSON.stringify([q, category, subCategory, sortType]);
@@ -50,8 +56,13 @@ const Collection = () => {
   }, []);
 
   // Reload from page 0 whenever a filter, the sort or the search changes. Typing waits for a pause; the
-  // current products stay visible (dimmed) until the new ones arrive.
+  // current products stay visible (dimmed) until the new ones arrive. The very first run is skipped when
+  // SSR already fetched this exact query (q is always '' on a fresh load, so it matches).
   useEffect(() => {
+    if (skipFirstFetch.current) {
+      skipFirstFetch.current = false;
+      return undefined;
+    }
     let cancelled = false;
     const timer = setTimeout(() => {
       setRefreshing(true);
@@ -176,6 +187,7 @@ const Collection = () => {
           error={error}
           refreshing={refreshing && !firstLoad}
           cols="grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+          hideEmptyMessage
         />
         {!firstLoad && !refreshing && !error && items.length === 0 && (
           <div className="py-10 text-center text-gray-500">

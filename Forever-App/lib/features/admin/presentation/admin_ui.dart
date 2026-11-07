@@ -64,10 +64,13 @@ class AdminStatusBadge extends StatelessWidget {
       'DELIVERED' ||
       'ACTIVE' ||
       'Visible' ||
+      'In stock' ||
       'Paid' => (const Color(0xFFE7F5EC), const Color(0xFF207449)),
       'CANCELLED' ||
       'EXPIRED' ||
       'Hidden' => (const Color(0xFFF2F0EE), const Color(0xFF66615B)),
+      'Out of stock' ||
+      'Unpaid' => (const Color(0xFFFDECEC), const Color(0xFFB03A3A)),
       'LOW' ||
       'Low stock' ||
       'USED_UP' => (const Color(0xFFFFF1DF), const Color(0xFF96600F)),

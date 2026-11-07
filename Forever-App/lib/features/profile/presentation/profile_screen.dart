@@ -31,7 +31,10 @@ class ProfileScreen extends ConsumerWidget {
             ).textTheme.headlineMedium?.copyWith(fontSize: 30),
           ),
           const SizedBox(height: 20),
-          if (user == null) const _GuestCard() else _UserCard(user),
+          if (user == null)
+            const _LoggedOutCard(key: Key('profile-logged-out'))
+          else
+            _UserCard(user),
           const SizedBox(height: 22),
           if (user != null)
             _Group(
@@ -142,8 +145,8 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-class _GuestCard extends StatelessWidget {
-  const _GuestCard();
+class _LoggedOutCard extends StatelessWidget {
+  const _LoggedOutCard({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -10,6 +10,8 @@ public interface CommerceService {
     Pricing price(BigDecimal itemsAmount, String couponCode, String shippingMethod);
     /** Delivery fee + coupon discount. Throws a 400 ApiException with a clear message if the coupon can't be used. */
     Pricing price(BigDecimal itemsAmount, String couponCode, String shippingMethod, Long userId);
+    /** For a guest checkout (userId null) the per-customer coupon limit uses {@code guestEmail}. */
+    Pricing price(BigDecimal itemsAmount, String couponCode, String shippingMethod, Long userId, String guestEmail);
     void reserve(Long productId, String size, int quantity);
     void restore(Long productId, String size, int quantity);
     void syncInventory(Long productId, List<String> sizes);

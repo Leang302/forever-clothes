@@ -94,6 +94,83 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('creating a product sends stock, active and image URLs', (
+    tester,
+  ) async {
+    await showForm(tester, const ProductFormScreen());
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Name'),
+      'Linen Shirt',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Description'),
+      'Breathable',
+    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Price'), '30');
+    await tester.enterText(find.byKey(const Key('product-stock')), '7');
+    await tester.tap(find.text('Category'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Women').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subcategory'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dresses').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('M'));
+    await tester.ensureVisible(find.byKey(const Key('product-active')));
+    await tester.tap(find.byKey(const Key('product-active')));
+    await tester.pump();
+
+    // A non-http URL is rejected, an https one is accepted.
+    await tester.ensureVisible(find.byKey(const Key('product-image-url')));
+    await tester.enterText(
+      find.byKey(const Key('product-image-url')),
+      'ftp://x.test/a.png',
+    );
+    await tester.tap(find.byKey(const Key('product-add-image-url')));
+    await tester.pump();
+    expect(
+      find.text('Image URLs must start with http:// or https://'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const Key('product-image-url')),
+      'https://img.test/shirt.png',
+    );
+    await tester.tap(find.byKey(const Key('product-add-image-url')));
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Save product'));
+    await tester.tap(find.text('Save product'));
+    await tester.pumpAndSettle();
+
+    expect(saved?.path, '/api/admin/products');
+    expect(saved?.method, 'POST');
+    final fields = (saved!.data as FormData).fields;
+    String one(String k) => fields.where((e) => e.key == k).single.value;
+    expect(one('stock'), '7');
+    expect(one('active'), 'false');
+    expect(one('imageUrls'), 'https://img.test/shirt.png');
+    expect(one('name'), 'Linen Shirt');
+    expect(tester.takeException(), isNull);
+  });
+
+  test('validateImageUrl enforces http(s) and the 4-image limit', () {
+    expect(validateImageUrl('https://a.test/x.png'), isNull);
+    expect(validateImageUrl('http://a.test/x.png'), isNull);
+    expect(validateImageUrl(''), isNotNull);
+    expect(validateImageUrl('a.test/x.png'), isNotNull);
+    expect(validateImageUrl('javascript:alert(1)'), isNotNull);
+    expect(
+      validateImageUrl(
+        'https://a.test/x.png',
+        existing: ['https://a.test/x.png'],
+      ),
+      isNotNull,
+    );
+    expect(validateImageUrl('https://a.test/y.png', total: 4), isNotNull);
+  });
+
   testWidgets('creating a coupon sends its discount settings', (tester) async {
     await showForm(tester, const CouponFormScreen());
     await tester.enterText(

@@ -12,8 +12,12 @@ class CartRepositoryImpl implements CartRepository {
   Future<Cart> getCart() async => (await _remote.get()).toEntity();
 
   @override
-  Future<Cart> add({required int productId, required String size}) async =>
-      (await _remote.add(productId, size)).toEntity();
+  Future<Cart> add({
+    required int productId,
+    required String size,
+    int quantity = 1,
+  }) async =>
+      (await _remote.add(productId, size, quantity: quantity)).toEntity();
 
   @override
   Future<Cart> setQuantity({

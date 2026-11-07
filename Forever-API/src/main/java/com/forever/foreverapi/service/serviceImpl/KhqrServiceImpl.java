@@ -1,5 +1,6 @@
 package com.forever.foreverapi.service.serviceImpl;
 
+import com.forever.foreverapi.common.security.ShopperRef;
 import com.forever.foreverapi.config.AppProperties;
 import com.forever.foreverapi.exception.ApiException;
 import com.forever.foreverapi.model.dto.OrderDtos.OrderResponse;
@@ -48,12 +49,22 @@ public class KhqrServiceImpl implements KhqrService {
         this.config = props.khqr(); this.json = json; this.orders = orders; this.orderRepository = orderRepository;
     }
 
-    public KhqrCheckout checkout(Long userId, PlaceOrderRequest request) {
+    public KhqrCheckout checkout(ShopperRef shopper, PlaceOrderRequest request) {
         requireConfigured();
         if (request.paymentMethod() != PaymentMethod.KHQR) {
             throw ApiException.badRequest("PAYMENT_MISMATCH", "Payment method must be KHQR");
         }
-        OrderResponse order = orders.place(userId, request);
+        OrderResponse order = orders.place(shopper, request);
+        // A replayed submission (same idempotency key) comes back with the order the first one created.
+        Order placed = orderRepository.findById(order.id()).orElseThrow();
+        if (placed.getStatus() != OrderStatus.PAYMENT_PENDING) {
+            throw placed.isPaid()
+                    ? ApiException.conflict("ORDER_ALREADY_PAID", "This order has already been paid")
+                    : ApiException.conflict("ORDER_NOT_PENDING", "This order is no longer awaiting payment");
+        }
+        if (placed.getKhqrQr() != null && placed.getKhqrExpiresAt().isAfter(Instant.now())) {
+            return checkoutResponse(order, placed.getKhqrQr(), placed.getKhqrExpiresAt());
+        }
         try {
             Instant expiresAt = Instant.now().plus(config.qrTtl());
             var info = new IndividualInfo();
@@ -68,20 +79,40 @@ public class KhqrServiceImpl implements KhqrService {
             if (result.getKHQRStatus().getCode() != 0 || result.getData() == null) {
                 throw new IllegalStateException(result.getKHQRStatus().getMessage());
             }
-            String qr = result.getData().getQr();
-            orders.recordKhqrPayment(order.id(), result.getData().getMd5());
-            return new KhqrCheckout(order.id(), qr, qrImage(qr), order.total(), "USD", config.merchantName(), expiresAt);
+            orders.recordKhqrPayment(order.id(), result.getData().getMd5(), result.getData().getQr(), expiresAt);
+            // Re-read: if a concurrent replay stored its QR first, everyone gets that one.
+            Order stored = orderRepository.findById(order.id()).orElseThrow();
+            return checkoutResponse(order, stored.getKhqrQr(), stored.getKhqrExpiresAt());
         } catch (Exception e) {
             log.warn("KHQR checkout failed for order {}: {}", order.id(), e.toString());
-            orders.abortOnlinePayment(userId, order.id());
+            if (shopper.isGuest()) orders.abortOnlinePaymentAsGuest(order.id(), order.guestAccessToken());
+            else orders.abortOnlinePayment(shopper.userId(), order.id());
             throw ApiException.unavailable("KHQR_UNAVAILABLE", "Could not create the KHQR payment code");
         }
     }
 
     public KhqrPaymentStatus verify(Long userId, Long orderId) {
+        return verify(orderRepository.findByIdAndUserId(orderId, userId)
+                .orElseThrow(() -> ApiException.notFound("Order not found")));
+    }
+
+    public KhqrPaymentStatus verifyAsGuest(Long orderId, String accessToken) {
+        orders.requireGuestAccess(orderId, accessToken);
+        return verify(orderRepository.findById(orderId).orElseThrow());
+    }
+
+    public KhqrPaymentStatus cancel(Long userId, Long orderId) {
+        return cancel(() -> verify(userId, orderId), () -> orders.abortOnlinePayment(userId, orderId), orderId);
+    }
+
+    public KhqrPaymentStatus cancelAsGuest(Long orderId, String accessToken) {
+        return cancel(() -> verifyAsGuest(orderId, accessToken),
+                () -> orders.abortOnlinePaymentAsGuest(orderId, accessToken), orderId);
+    }
+
+    private KhqrPaymentStatus verify(Order order) {
         requireConfigured();
-        Order order = orderRepository.findByIdAndUserId(orderId, userId)
-                .orElseThrow(() -> ApiException.notFound("Order not found"));
+        Long orderId = order.getId();
         if (order.getPaymentMethod() != PaymentMethod.KHQR) {
             throw ApiException.badRequest("PAYMENT_MISMATCH", "Order is not a KHQR order");
         }
@@ -92,10 +123,10 @@ public class KhqrServiceImpl implements KhqrService {
         return new KhqrPaymentStatus(paid, paid ? "PAID" : "PENDING");
     }
 
-    public KhqrPaymentStatus cancel(Long userId, Long orderId) {
+    private KhqrPaymentStatus cancel(java.util.function.Supplier<KhqrPaymentStatus> verify, Runnable abort, Long orderId) {
         KhqrPaymentStatus status;
         try {
-            status = verify(userId, orderId);
+            status = verify.get();
         } catch (ApiException e) {
             if (!"KHQR_UNAVAILABLE".equals(e.getCode())) throw e;
             // Bakong is unreachable: let the customer give up anyway rather than keep the stock reserved.
@@ -103,7 +134,7 @@ public class KhqrServiceImpl implements KhqrService {
             status = new KhqrPaymentStatus(false, "PENDING");
         }
         if (status.paid() || "CANCELLED".equals(status.status())) return status;
-        orders.abortOnlinePayment(userId, orderId);
+        abort.run();
         return new KhqrPaymentStatus(false, "CANCELLED");
     }
 
@@ -134,6 +165,15 @@ public class KhqrServiceImpl implements KhqrService {
         } catch (Exception e) {
             log.warn("KHQR check failed for order {}: {}", order.getId(), e.toString());
             throw ApiException.unavailable("KHQR_UNAVAILABLE", "Unable to check the KHQR payment with Bakong");
+        }
+    }
+
+    private KhqrCheckout checkoutResponse(OrderResponse order, String qr, Instant expiresAt) {
+        try {
+            return new KhqrCheckout(order.id(), qr, qrImage(qr), order.total(), "USD", config.merchantName(), expiresAt,
+                    order.guestAccessToken());
+        } catch (Exception e) {
+            throw ApiException.unavailable("KHQR_UNAVAILABLE", "Could not render the KHQR payment code");
         }
     }
 

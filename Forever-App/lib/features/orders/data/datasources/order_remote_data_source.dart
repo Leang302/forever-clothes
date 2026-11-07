@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../../core/network/api_guard.dart';
+import '../../../../core/network/auth_interceptor.dart';
 import '../../../../core/utils/json_helpers.dart';
 import '../../domain/entities/khqr_payment.dart';
 import '../models/checkout_options_dto.dart';
@@ -17,13 +18,15 @@ class OrderRemoteDataSource {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) => {
     'address': address.toJson(),
     'paymentMethod': paymentMethod,
     if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode,
-    if (shippingMethod != null) 'shippingMethod': shippingMethod,
+    'shippingMethod': ?shippingMethod,
     if (cartItemIds != null && cartItemIds.isNotEmpty)
       'cartItemIds': cartItemIds,
+    'idempotencyKey': ?idempotencyKey,
   };
 
   Future<OrderDto> place(
@@ -32,6 +35,7 @@ class OrderRemoteDataSource {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) => guardApi(
     () async => OrderDto.fromJson(
       (await _dio.post<Json>(
@@ -42,6 +46,7 @@ class OrderRemoteDataSource {
           couponCode: couponCode,
           shippingMethod: shippingMethod,
           cartItemIds: cartItemIds,
+          idempotencyKey: idempotencyKey,
         ),
       )).data!,
     ),
@@ -73,6 +78,7 @@ class OrderRemoteDataSource {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) => guardApi(() async {
     final json = (await _dio.post<Json>(
       '/api/khqr/checkout',
@@ -82,6 +88,7 @@ class OrderRemoteDataSource {
         couponCode: couponCode,
         shippingMethod: shippingMethod,
         cartItemIds: cartItemIds,
+        idempotencyKey: idempotencyKey,
       ),
     )).data!;
     return KhqrPayment(
@@ -91,6 +98,8 @@ class OrderRemoteDataSource {
       currency: json['currency'] as String,
       merchantName: json['merchantName'] as String,
       expiresAt: DateTime.parse(json['expiresAt'] as String),
+      qrString: json['qrString'] as String?,
+      guestAccessToken: json['guestAccessToken'] as String?,
     );
   });
 
@@ -105,6 +114,52 @@ class OrderRemoteDataSource {
   Future<bool> cancelKhqr(int orderId) => guardApi(
     () async =>
         (await _dio.post<Json>('/api/khqr/$orderId/cancel')).data!['paid']
+            as bool,
+  );
+
+  // ---- A guest's own order: authorised ONLY by its X-Order-Access token
+  // (no login, no guest-session header, no refresh on failure).
+
+  static const orderAccessHeader = 'X-Order-Access';
+
+  static Options _orderAccess(String accessToken) => Options(
+    extra: {AuthInterceptor.skipAuth: true},
+    headers: {orderAccessHeader: accessToken},
+  );
+
+  Future<OrderDto> getGuestOrder(int id, String accessToken) => guardApi(
+    () async => OrderDto.fromJson(
+      (await _dio.get<Json>(
+        '/api/guest-orders/$id',
+        options: _orderAccess(accessToken),
+      )).data!,
+    ),
+  );
+
+  Future<OrderDto> cancelGuestOrder(int id, String accessToken) => guardApi(
+    () async => OrderDto.fromJson(
+      (await _dio.post<Json>(
+        '/api/guest-orders/$id/cancel',
+        options: _orderAccess(accessToken),
+      )).data!,
+    ),
+  );
+
+  Future<bool> verifyGuestKhqr(int orderId, String accessToken) => guardApi(
+    () async =>
+        (await _dio.post<Json>(
+              '/api/guest-orders/$orderId/khqr/verify',
+              options: _orderAccess(accessToken),
+            )).data!['paid']
+            as bool,
+  );
+
+  Future<bool> cancelGuestKhqr(int orderId, String accessToken) => guardApi(
+    () async =>
+        (await _dio.post<Json>(
+              '/api/guest-orders/$orderId/khqr/cancel',
+              options: _orderAccess(accessToken),
+            )).data!['paid']
             as bool,
   );
 

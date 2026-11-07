@@ -3,7 +3,11 @@ import '../entities/cart.dart';
 abstract interface class CartRepository {
   Future<Cart> getCart();
 
-  Future<Cart> add({required int productId, required String size});
+  Future<Cart> add({
+    required int productId,
+    required String size,
+    int quantity = 1,
+  });
 
   /// A quantity of 0 removes the line.
   Future<Cart> setQuantity({

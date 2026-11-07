@@ -41,6 +41,16 @@ class SessionExpired extends _$SessionExpired {
   void trigger() => state++;
 }
 
+/// Bumped by [AuthInterceptor] when the API answered 401 GUEST_SESSION_EXPIRED
+/// (the stored guest token is already deleted); the guest cart resets to empty.
+@Riverpod(keepAlive: true)
+class GuestSessionExpired extends _$GuestSessionExpired {
+  @override
+  int build() => 0;
+
+  void trigger() => state++;
+}
+
 @Riverpod(keepAlive: true)
 Dio dio(Ref ref) {
   final baseUrl = ref.watch(baseUrlProvider);
@@ -56,11 +66,14 @@ Dio dio(Ref ref) {
     AuthInterceptor(
       client: client,
       tokens: ref.watch(tokenStorageProvider),
+      guestSession: ref.watch(guestSessionStorageProvider),
       refreshClient: Dio(
         options.copyWith(connectTimeout: const Duration(seconds: 10)),
       ),
       onSessionExpired: () =>
           ref.read(sessionExpiredProvider.notifier).trigger(),
+      onGuestSessionExpired: () =>
+          ref.read(guestSessionExpiredProvider.notifier).trigger(),
     ),
   );
   if (kDebugMode) {

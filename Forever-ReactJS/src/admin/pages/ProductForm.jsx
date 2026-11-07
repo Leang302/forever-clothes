@@ -13,11 +13,23 @@ const MAX_IMAGES = 4;
 const MAX_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']; // same list the API accepts
 
-const empty = { name: '', description: '', price: '', category: '', subCategory: '', sizes: [], bestseller: false };
+const empty = { name: '', description: '', price: '', category: '', subCategory: '', sizes: [], bestseller: false, active: true, stock: '', imageUrls: '' };
 // Compares the editable fields, ignoring the order sizes were clicked in.
 const snapshot = (f) => JSON.stringify({ ...f, sizes: [...f.sizes].sort() });
 
-// Same rules as the API's ProductForm. `imageCount` = newly chosen images (required when creating).
+// Image URLs typed by the admin: one per line (commas / spaces also separate them).
+const parseUrls = (value) => value.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean);
+const isHttpUrl = (value) => {
+  try {
+    const u = new URL(value);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && Boolean(u.hostname);
+  } catch {
+    return false;
+  }
+};
+
+// Same rules as the API's ProductForm. `imageCount` = newly chosen images, uploaded files + URLs (at least
+// one when creating, at most MAX_IMAGES in total).
 const productSchema = (editing) =>
   z.object({
     name: text('Name', 200),
@@ -32,7 +44,18 @@ const productSchema = (editing) =>
     category: z.string().min(1, 'Choose a category'),
     subCategory: z.string().min(1, 'Choose a sub-category'),
     sizes: z.array(z.string()).min(1, 'Select at least one size'),
-    imageCount: editing ? z.number() : z.number().min(1, 'Upload at least one image'),
+    imageCount: (editing ? z.number() : z.number().min(1, 'Upload an image or enter an image URL'))
+      .max(MAX_IMAGES, `At most ${MAX_IMAGES} images in total (uploads + URLs)`),
+    imageUrls: z
+      .string()
+      .refine((v) => parseUrls(v).every(isHttpUrl), 'Each image URL must start with http:// or https://'),
+    // Optional: blank means "don't change stock" (new sizes start at 20 on the API). When given, every
+    // size is set to it (see Inventory for per-size amounts).
+    stock: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || (/^\d+$/.test(v) && Number(v) <= 100000), 'Whole number from 0 to 100000'),
   });
 
 const inputClass = (error) =>
@@ -72,6 +95,7 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
   const [loading, setLoading] = useState(editing);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [currentStock, setCurrentStock] = useState(null); // { size: unitsLeft } from the product response
 
   useEffect(() => {
     api.adminCategories().then((list) => setCategories([...list].sort((a, b) => a.name.localeCompare(b.name)))).catch(() => {});
@@ -93,11 +117,12 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
       .then((p) => {
         const loaded = {
           name: p.name, description: p.description, price: String(p.price), category: p.category,
-          subCategory: p.subCategory, sizes: p.sizes, bestseller: p.bestseller,
+          subCategory: p.subCategory, sizes: p.sizes, bestseller: Boolean(p.bestseller), active: p.active, stock: '', imageUrls: '',
         };
         setForm(loaded);
         setInitial(loaded);
         setExisting(p.images);
+        setCurrentStock(p.stock || null);
       })
       .catch(setLoadError)
       .finally(() => setLoading(false));
@@ -182,7 +207,9 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
   // Errors show after the first submit attempt and then update as the fields change.
   const [submitted, setSubmitted] = useState(false);
   const [serverErrors, setServerErrors] = useState({});
-  const check = () => validate(productSchema(editing), { ...form, imageCount: chosen.length });
+  const urls = parseUrls(form.imageUrls);
+  const newImageCount = chosen.length + urls.length;
+  const check = () => validate(productSchema(editing), { ...form, imageCount: newImageCount });
   const errors = submitted ? { ...serverErrors, ...check().errors } : {};
 
   const submit = async (e) => {
@@ -205,7 +232,13 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
     data.append('subCategory', valid.subCategory);
     SIZES.filter((s) => valid.sizes.includes(s)).forEach((s) => data.append('sizes', s));
     data.append('bestseller', String(form.bestseller));
-    chosen.forEach((f) => data.append('images', f)); // when editing, sending images replaces all current ones
+    // Visibility and stock travel in the same request, so create/update is one atomic save.
+    data.append('active', String(form.active));
+    // Blank stock = send nothing: the API keeps each size's current stock (new sizes start at 20).
+    if (valid.stock !== undefined && valid.stock !== '') data.append('stock', String(Number(valid.stock)));
+    // When editing, sending any images (files or URLs) replaces all current ones.
+    chosen.forEach((f) => data.append('images', f));
+    urls.forEach((u) => data.append('imageUrls', u));
 
     setSaving(true);
     try {
@@ -332,6 +365,36 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
             <input type="checkbox" checked={form.bestseller} onChange={(e) => setForm((f) => ({ ...f, bestseller: e.target.checked }))} className="w-4 h-4" />
             Show in &ldquo;Best seller&rdquo;
           </label>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} className="w-4 h-4" />
+            Active (visible in the shop)
+          </label>
+
+          <Field
+            label="Stock quantity"
+            name="stock"
+            error={errors.stock}
+            hint={
+              editing
+                ? 'Sets every size to this number. Leave blank to keep the current per-size stock. Set different amounts per size on the Inventory page.'
+                : 'Sets every selected size to this number. Leave blank to start each size at 20 (change it later on the Inventory page).'
+            }
+          >
+            <input {...errorProps('stock', errors.stock)} type="text" inputMode="numeric" value={form.stock} onChange={set('stock')}
+              className={inputClass(errors.stock)} placeholder="e.g. 50" />
+          </Field>
+          {editing && currentStock && (
+            <div className="-mt-2 text-xs text-gray-600" data-testid="current-stock">
+              <span className="text-gray-500">Current stock per size: </span>
+              {Object.entries(currentStock).map(([s, n], i) => (
+                <span key={s}>
+                  {i > 0 && ' · '}
+                  <b className={n === 0 ? 'text-red-600' : n <= 5 ? 'text-amber-600' : ''}>{s}: {n}</b>
+                </span>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card className={`p-5 h-fit transition-colors ${dropSlot === -1 ? 'border-black bg-gray-50' : errors.imageCount ? 'border-red-400' : ''}`}>
@@ -348,9 +411,9 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
                     }`}
                   >
                     <img
-                      src={previews[i] || (editing && chosen.length === 0 ? existing[i] : null) || assets.upload_area}
+                      src={previews[i] || (editing && newImageCount === 0 ? existing[i] : null) || assets.upload_area}
                       alt={`Image ${i + 1}`}
-                      className={`w-full h-full ${previews[i] || (editing && chosen.length === 0 && existing[i]) ? 'object-cover' : 'object-contain p-6 opacity-60'}`}
+                      className={`w-full h-full ${previews[i] || (editing && newImageCount === 0 && existing[i]) ? 'object-cover' : 'object-contain p-6 opacity-60'}`}
                     />
                     {dropSlot === i && (
                       <span className="absolute inset-0 flex items-center justify-center bg-white/80 text-xs font-medium text-black">
@@ -367,11 +430,27 @@ const ProductForm = ({ productId, prefill, onClose, onSaved }) => {
               ))}
             </div>
           </div>
+          <div className="mt-4">
+            <label htmlFor="imageUrls" className="block text-sm text-gray-600 mb-1.5">Image URL(s)</label>
+            <textarea {...errorProps('imageUrls', errors.imageUrls)} rows={2} value={form.imageUrls} onChange={set('imageUrls')}
+              className={inputClass(errors.imageUrls)} placeholder="https://example.com/photo.jpg (one per line)" />
+            <FieldError name="imageUrls" error={errors.imageUrls} />
+            {!errors.imageUrls && (
+              <span className="block text-xs text-gray-400 mt-1">Instead of, or as well as, uploading. Up to {MAX_IMAGES} images in total.</span>
+            )}
+            {urls.filter(isHttpUrl).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {urls.filter(isHttpUrl).map((u) => (
+                  <img key={u} src={u} alt="" className="h-14 w-12 rounded border object-cover" />
+                ))}
+              </div>
+            )}
+          </div>
           {editing && (
             <p className="text-xs text-gray-400 mt-3">
-              {chosen.length === 0
-                ? 'Showing the current images. Upload new ones to replace all of them.'
-                : `The ${existing.length} current image${existing.length === 1 ? '' : 's'} will be replaced by ${chosen.length} new one${chosen.length === 1 ? '' : 's'}.`}
+              {newImageCount === 0
+                ? 'Showing the current images. Upload new ones or enter URLs to replace all of them.'
+                : `The ${existing.length} current image${existing.length === 1 ? '' : 's'} will be replaced by ${newImageCount} new one${newImageCount === 1 ? '' : 's'}.`}
             </p>
           )}
         </Card>

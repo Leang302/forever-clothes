@@ -75,9 +75,15 @@ abstract final class AppTheme {
         errorBorder: border(AppColors.danger),
         focusedErrorBorder: border(AppColors.danger, 1.5),
       ),
+      // Minimum sizes must keep a FINITE width. `Size.fromHeight(54)` means a
+      // min width of double.infinity, which is unsatisfiable for a button laid
+      // out directly in a Row (Rows give non-flex children unbounded width)
+      // and threw "BoxConstraints forces an infinite width" from the checkout
+      // coupon row. Full-width buttons opt in explicitly instead: AppButton
+      // stretches itself; buttons in ListViews/bottom bars get tight widths.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(54),
+          minimumSize: const Size(64, 54),
           backgroundColor: AppColors.ink,
           foregroundColor: Colors.white,
           disabledBackgroundColor: AppColors.line,
@@ -93,7 +99,7 @@ abstract final class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(54),
+          minimumSize: const Size(64, 54),
           foregroundColor: AppColors.ink,
           side: const BorderSide(color: AppColors.line),
           shape: RoundedRectangleBorder(

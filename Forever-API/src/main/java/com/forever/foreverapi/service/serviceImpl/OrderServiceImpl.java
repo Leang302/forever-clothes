@@ -1,5 +1,7 @@
 package com.forever.foreverapi.service.serviceImpl;
 
+import com.forever.foreverapi.common.security.ShopperRef;
+import com.forever.foreverapi.service.GuestOrderAccess;
 import com.forever.foreverapi.service.OrderService;
 import com.forever.foreverapi.service.CommerceService;
 import com.forever.foreverapi.service.NotificationService;
@@ -22,6 +24,7 @@ import com.forever.foreverapi.repository.ProductRepository;
 import com.forever.foreverapi.model.entity.Product;
 import com.forever.foreverapi.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,10 +49,17 @@ public class OrderServiceImpl implements OrderService {
     private final CommerceService commerce;
     private final EmailService email;
     private final NotificationService notifications;
+    private final JdbcClient db;
+    private final GuestOrderAccess guestAccess;
+    private final com.forever.foreverapi.service.ShopperLocks locks;
 
     public OrderServiceImpl(OrderRepository orders, CartItemRepository cartItems, UserRepository users, ProductRepository products,
                         OrderMapper mapper, AppProperties props, CommerceService commerce, EmailService email,
-                        NotificationService notifications) {
+                        NotificationService notifications, JdbcClient db, GuestOrderAccess guestAccess,
+                        com.forever.foreverapi.service.ShopperLocks locks) {
+        this.locks = locks;
+        this.db = db;
+        this.guestAccess = guestAccess;
         this.orders = orders;
         this.cartItems = cartItems;
         this.users = users;
@@ -73,17 +83,39 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Transactional
-    public OrderResponse place(Long userId, PlaceOrderRequest req) {
-        List<CartItem> cart = selectedCartItems(userId, req.cartItemIds());
+    public OrderResponse place(ShopperRef shopper, PlaceOrderRequest req) {
+        // One checkout at a time per shopper: a concurrent duplicate (same key, double tap, or a second tab)
+        // waits here until the first commits, then sees its order / the emptied cart instead of reserving
+        // stock a second time. Released automatically at commit/rollback.
+        locks.lock(shopper);
+
+        String idempotencyKey = req.idempotencyKey() == null || req.idempotencyKey().isBlank()
+                ? null : req.idempotencyKey();
+        String fingerprint = idempotencyKey == null ? null : fingerprint(req);
+        if (idempotencyKey != null) {
+            var existing = orders.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                return replay(shopper, existing.get(), fingerprint);
+            }
+        }
+        List<CartItem> cart = selectedCartItems(shopper, req.cartItemIds());
         if (cart.isEmpty()) {
             throw ApiException.badRequest("CART_EMPTY", "Your cart is empty");
         }
 
         Order order = new Order();
-        order.setUser(users.getReferenceById(userId));
+        if (shopper.isGuest()) {
+            // A guest order belongs to no account — ever. Its customer details are the ones typed at checkout.
+            order.setGuestSessionId(shopper.guestSessionId());
+            guestAccess.grant(order);
+        } else {
+            order.setUser(users.getReferenceById(shopper.userId()));
+        }
         order.setPaymentMethod(req.paymentMethod());
         order.setStatus(req.paymentMethod().isOnline() ? OrderStatus.PAYMENT_PENDING : OrderStatus.ORDER_PLACED);
         order.setAddress(mapper.toEntity(req.address()));
+        order.setIdempotencyKey(idempotencyKey);
+        order.setIdempotencyFingerprint(fingerprint);
 
         BigDecimal itemsAmount = BigDecimal.ZERO;
         for (CartItem c : cart) {
@@ -103,20 +135,54 @@ public class OrderServiceImpl implements OrderService {
             itemsAmount = itemsAmount.add(p.getPrice().multiply(BigDecimal.valueOf(c.getQuantity())));
         }
         order.setItemsAmount(itemsAmount);
-        var pricing = commerce.price(itemsAmount, req.couponCode(), req.shippingMethod(), userId);
+        var pricing = commerce.price(itemsAmount, req.couponCode(), req.shippingMethod(), shopper.userId(),
+                shopper.isGuest() ? req.address().email() : null);
         order.setDeliveryFee(pricing.deliveryFee());
         order.setDiscount(pricing.discount());
         order.setCouponCode(pricing.couponCode());
         order.setShippingMethod(pricing.shippingMethod());
         order.setTotal(itemsAmount.subtract(pricing.discount()).add(pricing.deliveryFee()));
 
-        Order saved = orders.save(order);
+        Order saved = orders.save(order); // ux_orders_idempotency_key backs the lock above as a last line of defence
         cartItems.deleteAll(cart); // only the lines that were bought
         if (req.paymentMethod() == PaymentMethod.COD) {
             email.sendOrderConfirmation(req.address().email(), saved.getId(), saved.getTotal());
             notifyNewOrder(saved); // online orders notify once paid
         }
-        return mapper.toResponse(saved);
+        return withAccess(saved);
+    }
+
+    /** The response for the order's own placer: a guest order carries its order-access token. */
+    private OrderResponse withAccess(Order o) {
+        OrderResponse r = mapper.toResponse(o);
+        return o.getUser() == null ? r.withGuestAccessToken(guestAccess.tokenFor(o)) : r;
+    }
+
+    /** A guest order, if [token] is its valid order-access token; otherwise 404 (no hint whether it exists). */
+    private Order guestOrder(Long id, String token) {
+        return orders.findById(id)
+                .filter(o -> o.getUser() == null && guestAccess.allows(o, token))
+                .orElseThrow(() -> ApiException.notFound("Order not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public OrderResponse getAsGuest(Long id, String accessToken) {
+        return mapper.toResponse(guestOrder(id, accessToken));
+    }
+
+    @Transactional
+    public OrderResponse cancelAsGuest(Long id, String accessToken) {
+        return cancel(guestOrder(id, accessToken));
+    }
+
+    @Transactional
+    public void abortOnlinePaymentAsGuest(Long id, String accessToken) {
+        abort(guestOrder(id, accessToken));
+    }
+
+    @Transactional(readOnly = true)
+    public void requireGuestAccess(Long id, String accessToken) {
+        guestOrder(id, accessToken);
     }
 
     @Transactional(readOnly = true)
@@ -133,7 +199,10 @@ public class OrderServiceImpl implements OrderService {
 
     @Transactional
     public OrderResponse cancel(Long userId, Long id) {
-        Order o = orders.findByIdAndUserId(id, userId).orElseThrow(() -> ApiException.notFound("Order not found"));
+        return cancel(orders.findByIdAndUserId(id, userId).orElseThrow(() -> ApiException.notFound("Order not found")));
+    }
+
+    private OrderResponse cancel(Order o) {
         if (!CANCELLABLE.contains(o.getStatus())) {
             throw ApiException.conflict("ORDER_NOT_CANCELLABLE", "This order can no longer be cancelled");
         }
@@ -148,27 +217,33 @@ public class OrderServiceImpl implements OrderService {
 
     @Transactional
     public void abortOnlinePayment(Long userId, Long id) {
-        Order order = orders.findByIdAndUserId(id, userId)
-                .orElseThrow(() -> ApiException.notFound("Order not found"));
+        abort(orders.findByIdAndUserId(id, userId).orElseThrow(() -> ApiException.notFound("Order not found")));
+    }
+
+    /** Gives up an unpaid online order: stock goes back, and the lines go back to the cart they came from. */
+    private void abort(Order order) {
         if (!order.getPaymentMethod().isOnline() || order.isPaid()
                 || order.getStatus() != OrderStatus.PAYMENT_PENDING) {
             throw ApiException.conflict("PAYMENT_NOT_PENDING", "This payment can no longer be cancelled");
         }
-
-        var user = users.getReferenceById(userId);
+        // The placer's own cart: the account, or the guest session if it still exists. Never anyone else's.
+        ShopperRef owner = order.getUser() != null ? ShopperRef.user(order.getUser().getId())
+                : order.getGuestSessionId() != null ? ShopperRef.guest(order.getGuestSessionId()) : null;
         order.getItems().forEach(item -> {
             if (item.getProductId() == null) return;
-            var cartItem = cartItems.findByUserIdAndProductIdAndSize(userId, item.getProductId(), item.getSize())
+            commerce.restore(item.getProductId(), item.getSize(), item.getQuantity());
+            if (owner == null) return;
+            var cartItem = cartItems.findLine(owner, item.getProductId(), item.getSize())
                     .orElseGet(() -> {
                         var created = new CartItem();
-                        created.setUser(user);
+                        if (owner.isGuest()) created.setGuestSessionId(owner.guestSessionId());
+                        else created.setUser(users.getReferenceById(owner.userId()));
                         created.setProduct(products.getReferenceById(item.getProductId()));
                         created.setSize(item.getSize());
                         return created;
                     });
             cartItem.setQuantity(cartItem.getQuantity() + item.getQuantity());
             cartItems.save(cartItem);
-            commerce.restore(item.getProductId(), item.getSize(), item.getQuantity());
         });
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelledBy("CUSTOMER");
@@ -214,9 +289,40 @@ public class OrderServiceImpl implements OrderService {
         return mapper.toResponse(o);
     }
 
+    /** The order an earlier submission with the same key created, if it's this customer's and the details match. */
+    private OrderResponse replay(ShopperRef shopper, Order existing, String fingerprint) {
+        boolean sameOwner = shopper.isGuest()
+                ? existing.getUser() == null && shopper.guestSessionId().equals(existing.getGuestSessionId())
+                : existing.getUser() != null && existing.getUser().getId().equals(shopper.userId());
+        if (!sameOwner) {
+            throw ApiException.conflict("IDEMPOTENCY_KEY_REUSED", "This request key was already used for a different order");
+        }
+        if (existing.getIdempotencyFingerprint() != null && !existing.getIdempotencyFingerprint().equals(fingerprint)) {
+            throw ApiException.conflict("IDEMPOTENCY_KEY_MISMATCH",
+                    "This checkout was already submitted with different details. Refresh the page and try again");
+        }
+        return withAccess(existing);
+    }
+
+    /** Stable hash of everything in the request that shapes the order (the cart itself is server-side). */
+    private static String fingerprint(PlaceOrderRequest req) {
+        var a = req.address();
+        String ids = req.cartItemIds() == null ? "" : req.cartItemIds().stream().sorted().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        String canonical = String.join("\u001f", String.valueOf(req.paymentMethod()),
+                a.firstName(), a.lastName(), a.email(), a.street(), a.city(), a.state(), a.zipcode(), a.country(),
+                a.phone(), String.valueOf(req.couponCode()), String.valueOf(req.shippingMethod()), ids);
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     /** The cart lines being checked out: all of them, or only [ids] when the customer picked some. */
-    private List<CartItem> selectedCartItems(Long userId, List<Long> ids) {
-        List<CartItem> all = cartItems.findAllByUser(userId);
+    private List<CartItem> selectedCartItems(ShopperRef shopper, List<Long> ids) {
+        List<CartItem> all = cartItems.findAllFor(shopper);
         if (ids == null || ids.isEmpty()) return all;
         Set<Long> wanted = Set.copyOf(ids);
         List<CartItem> selected = all.stream().filter(c -> wanted.contains(c.getId())).toList();
@@ -254,9 +360,16 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * Stores the QR the customer will scan. First writer wins while that QR is still payable, so a retried
+     * checkout can't swap in a new MD5 and orphan a payment already made against the first code.
+     */
     @Transactional
-    public void recordKhqrPayment(Long orderId, String md5) {
-        orders.findById(orderId).orElseThrow(() -> ApiException.notFound("Order not found")).setKhqrMd5(md5);
+    public void recordKhqrPayment(Long orderId, String md5, String qr, java.time.Instant expiresAt) {
+        db.sql("update orders set khqr_md5 = :md5, khqr_qr = :qr, khqr_expires_at = :exp"
+                        + " where id = :id and (khqr_qr is null or khqr_expires_at <= now())")
+                .param("md5", md5).param("qr", qr).param("exp", java.sql.Timestamp.from(expiresAt)).param("id", orderId)
+                .update();
     }
 
     private static org.springframework.data.domain.Pageable pageable(int page, int size) {

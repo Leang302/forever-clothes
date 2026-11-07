@@ -37,9 +37,21 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    /** The registered customer; null for a guest order (which is never attached to an account later). */
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User user;
+
+    /** Guest cart session the order was placed from; cleared when that session expires. Not an access grant. */
+    @Column(name = "guest_session_id")
+    private Long guestSessionId;
+
+    /** Secret material for the guest's own order-access token (see GuestOrderAccess), and its expiry. */
+    @Column(name = "guest_access_nonce")
+    private String guestAccessNonce;
+
+    @Column(name = "guest_access_expires_at")
+    private Instant guestAccessExpiresAt;
 
     @Enumerated(EnumType.STRING)
     private OrderStatus status = OrderStatus.ORDER_PLACED;
@@ -76,6 +88,21 @@ public class Order {
     /** MD5 of the KHQR string the customer was asked to scan; Bakong looks the payment up by it. */
     @Column(name = "khqr_md5")
     private String khqrMd5;
+
+    /** The KHQR payload shown to the customer and when it stops being payable. */
+    @Column(name = "khqr_qr", columnDefinition = "text")
+    private String khqrQr;
+
+    @Column(name = "khqr_expires_at")
+    private Instant khqrExpiresAt;
+
+    /** Client-generated key for one checkout submission; lets a retried/double-tapped request be replayed safely. */
+    @Column(name = "idempotency_key")
+    private String idempotencyKey;
+
+    /** SHA-256 of the submitted checkout details, so a key reused with different details is rejected. */
+    @Column(name = "idempotency_fingerprint")
+    private String idempotencyFingerprint;
 
     @Embedded
     private ShippingAddress address;

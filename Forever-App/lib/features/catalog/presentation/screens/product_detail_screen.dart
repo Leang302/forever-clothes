@@ -1,26 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 import '../../../../app/router/routes.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/error/app_exception.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/haptics.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_snackbar.dart';
-import '../../../../core/widgets/choice_chip_pill.dart';
 import '../../../../core/widgets/circle_icon_button.dart';
 import '../../../../core/widgets/network_image.dart';
+import '../../../../core/widgets/quantity_stepper.dart';
 import '../../../../core/widgets/section_header.dart';
 import '../../../../core/widgets/state_views.dart';
-import '../../../auth/presentation/providers/auth_providers.dart';
+import '../../../cart/presentation/add_to_cart.dart';
 import '../../../cart/presentation/providers/cart_providers.dart';
 import '../../../wishlist/presentation/widgets/wishlist_heart_button.dart';
 import '../../domain/entities/product.dart';
+import '../../domain/entities/stock.dart';
 import '../providers/catalog_providers.dart';
 import '../widgets/product_card.dart';
+import '../widgets/stock_widgets.dart';
 
 class ProductDetailScreen extends ConsumerStatefulWidget {
   const ProductDetailScreen({super.key, required this.productId, this.heroTag});
@@ -39,10 +43,24 @@ class ProductDetailScreen extends ConsumerStatefulWidget {
 
 class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   String? _size;
+  int _quantity = 1;
   bool _adding = false;
 
+  /// The picked size, dropped if it sold out since (e.g. after a 409 refresh).
+  String? _effectiveSize(Product p) =>
+      _size != null && p.isSizeAvailable(_size!) ? _size : null;
+
+  /// Quantity kept within what's left of the selected size.
+  int _effectiveQuantity(Product p) {
+    final size = _effectiveSize(p);
+    return size == null
+        ? _quantity
+        : StockRules.clampQuantity(_quantity, p.stockOf(size));
+  }
+
   Future<void> _addToCart(Product product) async {
-    if (_size == null) {
+    final size = _effectiveSize(product);
+    if (size == null) {
       Haptics.error();
       AppSnackbar.error(
         context,
@@ -50,21 +68,17 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       );
       return;
     }
-    if (ref.read(currentUserProvider) == null) {
-      AppSnackbar.info(context, 'Log in to add items to your cart');
-      context.push(Routes.loginWithRedirect(Routes.productPath(product.id)));
-      return;
-    }
     setState(() => _adding = true);
-    try {
-      await ref.read(cartControllerProvider.notifier).add(product.id, _size!);
-      Haptics.success();
-      if (mounted) AppSnackbar.info(context, 'Added to cart');
-    } catch (e) {
-      if (mounted) AppSnackbar.error(context, e);
-    } finally {
-      if (mounted) setState(() => _adding = false);
-    }
+    // Anonymous shoppers get an anonymous guest cart session (created only
+    // now, when it is actually needed) and are never sent to the login screen.
+    await addToCartWithFeedback(
+      context,
+      ref,
+      product: product,
+      size: size,
+      quantity: _effectiveQuantity(product),
+    );
+    if (mounted) setState(() => _adding = false);
   }
 
   @override
@@ -73,10 +87,15 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: product.when(
+        // Keep showing the product (not a skeleton) while a 409 refresh runs.
+        skipLoadingOnRefresh: true,
         data: (p) => _Content(
           product: p,
-          size: _size,
-          onSize: (s) => setState(() => _size = s),
+          size: _effectiveSize(p),
+          onSize: (s) => setState(() {
+            _size = s;
+            _quantity = StockRules.clampQuantity(_quantity, p.stockOf(s));
+          }),
           heroTag: widget.heroTag,
         ),
         loading: () => Skeletonizer(
@@ -100,11 +119,24 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
         ),
       ),
       bottomNavigationBar: product.maybeWhen(
-        data: (p) => _ActionBar(
-          price: p.price,
-          busy: _adding,
-          onAdd: () => _addToCart(p),
-        ),
+        skipLoadingOnRefresh: true,
+        data: (p) {
+          final size = _effectiveSize(p);
+          return _ActionBar(
+            price: p.price,
+            quantity: _effectiveQuantity(p),
+            maxQuantity: size == null
+                ? StockRules.maxPerLine
+                : StockRules.maxQuantity(p.stockOf(size)),
+            quantityEnabled: size != null,
+            onQuantityChanged: (q) => setState(() => _quantity = q),
+            busy: _adding,
+            label: p.canBuy ? 'Add to cart' : 'Out of stock',
+            // Nothing buyable: disabled. Otherwise tapping without a size
+            // explains what's missing.
+            onAdd: p.canBuy ? () => _addToCart(p) : null,
+          );
+        },
         orElse: () => null,
       ),
     );
@@ -115,6 +147,32 @@ class _TopBar extends ConsumerWidget {
   const _TopBar({this.product});
 
   final Product? product;
+
+  /// Shares via the native OS share sheet — on a real device this surfaces
+  /// Messages/Mail/Facebook/Telegram/etc. as options, which is the right
+  /// mobile pattern (vs. deep-linking a specific social app's API).
+  ///
+  /// The link points at the React storefront's `/product/:id` page (served
+  /// with Open Graph tags for link previews). Its host is
+  /// [AppConfig.webBaseUrl]: pass the deployed public URL with
+  /// `--dart-define=WEB_BASE_URL=https://…` for real recipients; the dev
+  /// default only resolves on this machine/emulator.
+  void _shareProduct(BuildContext context, Product product) {
+    final box = context.findRenderObject() as RenderBox?;
+    SharePlus.instance.share(
+      ShareParams(
+        text: productShareText(
+          name: product.name,
+          price: formatPrice(product.price),
+          productId: product.id,
+        ),
+        // iPad needs an anchor for the share popover.
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -131,6 +189,12 @@ class _TopBar extends ConsumerWidget {
             ),
             const Spacer(),
             if (product != null && product!.id != 0) ...[
+              CircleIconButton(
+                icon: Icons.ios_share_rounded,
+                tooltip: 'Share',
+                onTap: () => _shareProduct(context, product!),
+              ),
+              const SizedBox(width: 10),
               WishlistHeartButton(product: product!, size: 44),
               const SizedBox(width: 10),
             ],
@@ -206,23 +270,22 @@ class _Content extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    Text(
-                      'Size',
-                      style: Theme.of(context).textTheme.titleMedium,
+                    Row(
+                      children: [
+                        Text(
+                          'Size',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const Spacer(),
+                        if (product.id != 0)
+                          StockStatus(product: product, size: size),
+                      ],
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        for (final s in product.sizes)
-                          PillChip(
-                            label: s,
-                            minWidth: 56,
-                            selected: s == size,
-                            onTap: () => onSize(s),
-                          ),
-                      ],
+                    SizeSelector(
+                      product: product,
+                      selected: size,
+                      onSelected: onSize,
                     ),
                     const SizedBox(height: 24),
                     Text(
@@ -398,13 +461,23 @@ class _Perks extends StatelessWidget {
 class _ActionBar extends StatelessWidget {
   const _ActionBar({
     required this.price,
+    required this.quantity,
+    required this.maxQuantity,
+    required this.quantityEnabled,
+    required this.onQuantityChanged,
     required this.busy,
+    required this.label,
     required this.onAdd,
   });
 
   final double price;
+  final int quantity;
+  final int maxQuantity;
+  final bool quantityEnabled;
+  final ValueChanged<int> onQuantityChanged;
   final bool busy;
-  final VoidCallback onAdd;
+  final String label;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -423,33 +496,54 @@ class _ActionBar extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 14, 24, 12),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+              Row(
                 children: [
                   const Text(
-                    'Price',
-                    style: TextStyle(color: AppColors.muted, fontSize: 13),
+                    'Quantity',
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  Text(
-                    formatPrice(price),
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  const Spacer(),
+                  QuantityStepper(
+                    quantity: quantity,
+                    max: maxQuantity,
+                    enabled: quantityEnabled,
+                    onChanged: onQuantityChanged,
                   ),
                 ],
               ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: AppButton(
-                  label: 'Add to cart',
-                  icon: Icons.shopping_bag_outlined,
-                  loading: busy,
-                  onPressed: onAdd,
-                ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Price',
+                        style: TextStyle(color: AppColors.muted, fontSize: 13),
+                      ),
+                      Text(
+                        formatPrice(price * quantity),
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: AppButton(
+                      label: label,
+                      icon: Icons.shopping_bag_outlined,
+                      loading: busy,
+                      onPressed: onAdd,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -24,8 +24,9 @@ public final class CartDtos {
             @NotNull @Min(0) @Max(99) Integer quantity) {
     }
 
+    /** {@code stock} is the units currently left in this size (the cap for {@code quantity}). */
     public record CartLine(Long id, Long productId, String name, BigDecimal price, String image, String size,
-                           int quantity, BigDecimal lineTotal) {
+                           int quantity, BigDecimal lineTotal, int stock) {
     }
 
     public record CartResponse(List<CartLine> items, int itemCount, BigDecimal subtotal, BigDecimal deliveryFee,

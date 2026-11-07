@@ -11,19 +11,24 @@ class OrderRepositoryImpl implements OrderRepository {
   final OrderRemoteDataSource _remote;
 
   @override
-  Future<Order> place({
+  Future<PlacedOrder> place({
     required ShippingAddress address,
     required PaymentMethod paymentMethod,
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
-  }) async => (await _remote.place(
-    AddressDto.fromEntity(address),
-    paymentMethod.apiValue,
-    couponCode: couponCode,
-    shippingMethod: shippingMethod,
-    cartItemIds: cartItemIds,
-  )).toEntity();
+    String? idempotencyKey,
+  }) async {
+    final dto = await _remote.place(
+      AddressDto.fromEntity(address),
+      paymentMethod.apiValue,
+      couponCode: couponCode,
+      shippingMethod: shippingMethod,
+      cartItemIds: cartItemIds,
+      idempotencyKey: idempotencyKey,
+    );
+    return PlacedOrder(dto.toEntity(), guestAccessToken: dto.guestAccessToken);
+  }
 
   @override
   Future<List<Order>> list() async =>
@@ -41,11 +46,13 @@ class OrderRepositoryImpl implements OrderRepository {
     String? couponCode,
     String? shippingMethod,
     List<int>? cartItemIds,
+    String? idempotencyKey,
   }) => _remote.khqrCheckout(
     AddressDto.fromEntity(address),
     couponCode: couponCode,
     shippingMethod: shippingMethod,
     cartItemIds: cartItemIds,
+    idempotencyKey: idempotencyKey,
   );
 
   @override
@@ -63,4 +70,20 @@ class OrderRepositoryImpl implements OrderRepository {
   @override
   Future<CouponPreview> checkCoupon(String code, double subtotal) async =>
       (await _remote.checkCoupon(code, subtotal)).toEntity();
+
+  @override
+  Future<Order> getGuestOrder(int id, String accessToken) async =>
+      (await _remote.getGuestOrder(id, accessToken)).toEntity();
+
+  @override
+  Future<Order> cancelGuestOrder(int id, String accessToken) async =>
+      (await _remote.cancelGuestOrder(id, accessToken)).toEntity();
+
+  @override
+  Future<bool> verifyGuestKhqr(int orderId, String accessToken) =>
+      _remote.verifyGuestKhqr(orderId, accessToken);
+
+  @override
+  Future<bool> cancelGuestKhqr(int orderId, String accessToken) =>
+      _remote.cancelGuestKhqr(orderId, accessToken);
 }

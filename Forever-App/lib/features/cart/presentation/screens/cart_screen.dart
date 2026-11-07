@@ -11,30 +11,67 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_snackbar.dart';
 import '../../../../core/widgets/network_image.dart';
+import '../../../../core/widgets/quantity_stepper.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../auth/presentation/providers/auth_providers.dart';
+import '../../../catalog/domain/entities/stock.dart';
 import '../../domain/entities/cart.dart';
 import '../providers/cart_providers.dart';
+import '../providers/guest_session_providers.dart';
 import '../widgets/cart_summary.dart';
 
-class CartScreen extends ConsumerWidget {
+class CartScreen extends ConsumerStatefulWidget {
   const CartScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CartScreen> createState() => _CartScreenState();
+}
+
+class _CartScreenState extends ConsumerState<CartScreen> {
+  // No guest session is started just for opening this tab: a visitor who
+  // never added anything has no cart, so there is nothing to load. The
+  // session is created lazily by add-to-cart (see `addToCartWithFeedback`),
+  // which keeps us well under the API's per-IP guest-session rate limit.
+
+  /// Whether there is a cart to show: the account's, or the guest session's.
+  bool get _hasCart =>
+      ref.read(currentUserProvider) != null ||
+      ref.read(guestSessionProvider) != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-read the cart on open so each line's stock is current and lines
+    // that went over stock are flagged before the shopper heads to checkout.
+    if (_hasCart) {
+      Future.microtask(() {
+        if (mounted) ref.invalidate(cartControllerProvider);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
     final user = ref.watch(currentUserProvider);
+    final guestSession = ref.watch(guestSessionProvider);
     final cart = ref.watch(cartControllerProvider);
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final anonymousWithoutCart = user == null && guestSession == null;
 
     Widget body;
-    if (user == null) {
+    if (anonymousWithoutCart && !auth.isLoading) {
       body = EmptyState(
-        icon: Icons.lock_outline_rounded,
-        title: 'Log in to see your cart',
-        message:
-            'Your bag is saved to your account so you can pick it up on any device.',
-        actionLabel: 'Log in',
-        onAction: () => context.push(Routes.loginWithRedirect(Routes.cart)),
+        icon: Icons.shopping_bag_outlined,
+        title: 'Your cart is empty',
+        message: 'Browse the collection and add something you love.',
+        actionLabel: 'Start shopping',
+        onAction: () => context.go(Routes.collection),
+      );
+    } else if (anonymousWithoutCart) {
+      body = Skeletonizer(
+        enabled: true,
+        child: _CartList(cart: _skeletonCart, bottomInset: bottom),
       );
     } else if (cart.hasError && !cart.hasValue) {
       body = ErrorView(
@@ -133,10 +170,97 @@ class _CartList extends ConsumerWidget {
   final Cart cart;
   final double bottomInset;
 
+  /// Lines above their stock can't be ordered: explain before checkout and
+  /// offer to trim them to what's left (removing sold-out lines).
+  Future<void> _checkout(BuildContext context, WidgetRef ref) async {
+    final problems = cart.problemLines;
+    if (problems.isEmpty) {
+      context.push(Routes.checkout);
+      return;
+    }
+    Haptics.error();
+    final fix = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Some items are low on stock'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Stock changed since you added these. Adjust them before '
+              'checking out:',
+            ),
+            const SizedBox(height: 10),
+            for (final l in problems)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('• ${_problemText(l)}'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            key: const Key('fix-stock'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Update cart'),
+          ),
+        ],
+      ),
+    );
+    if (fix != true) return;
+    final controller = ref.read(cartControllerProvider.notifier);
+    try {
+      for (final l in problems) {
+        if (l.soldOut) {
+          await controller.remove(l);
+        } else {
+          await controller.setQuantity(l, l.maxQuantity);
+        }
+      }
+      if (context.mounted) AppSnackbar.info(context, 'Cart updated to stock');
+    } catch (e) {
+      if (context.mounted) AppSnackbar.error(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final problems = cart.problemLines.length;
     return Column(
       children: [
+        if (problems > 0)
+          Container(
+            key: const Key('stock-warning'),
+            margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.danger.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: AppColors.danger,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    problems == 1
+                        ? '1 item has more than is left in stock.'
+                        : '$problems items have more than is left in stock.',
+                    style: const TextStyle(color: AppColors.danger),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: RefreshIndicator(
             color: AppColors.ink,
@@ -155,13 +279,18 @@ class _CartList extends ConsumerWidget {
           action: AppButton(
             label: 'Checkout',
             icon: Icons.arrow_forward_rounded,
-            onPressed: () => context.push(Routes.checkout),
+            onPressed: () => _checkout(context, ref),
           ),
         ),
       ],
     );
   }
 }
+
+String _problemText(CartLine l) => l.soldOut
+    ? '${l.name} (size ${l.size}) is sold out'
+    : 'Only ${l.stock} left of ${l.name} in size ${l.size} '
+          '(you have ${l.quantity})';
 
 class _CartTile extends ConsumerWidget {
   const _CartTile(this.line);
@@ -203,6 +332,7 @@ class _CartTile extends ConsumerWidget {
         ),
       ),
       child: AppCard(
+        key: Key('cart-line-${line.productId}-${line.size}'),
         padding: const EdgeInsets.all(12),
         onTap: () => context.push(Routes.productPath(line.productId)),
         child: Row(
@@ -231,19 +361,51 @@ class _CartTile extends ConsumerWidget {
                     'Size ${line.size}',
                     style: const TextStyle(color: AppColors.muted),
                   ),
+                  if (line.exceedsStock) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      line.soldOut
+                          ? 'Sold out — remove to check out'
+                          : 'Only ${line.stock} left — reduce quantity',
+                      style: const TextStyle(
+                        color: AppColors.danger,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ] else if (line.stock != null &&
+                      line.stock! <= StockRules.lowStockThreshold) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      StockRules.label(line.stock!),
+                      style: const TextStyle(
+                        color: AppColors.warning,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Text(
-                        formatPrice(line.price * line.quantity),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 17,
+                      Expanded(
+                        child: Text(
+                          formatPrice(line.price * line.quantity),
+                          key: Key('line-subtotal-${line.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 17,
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      _Stepper(
+                      QuantityStepper(
+                        keyPrefix: 'line-${line.id}',
                         quantity: line.quantity,
+                        // Allow stepping down from an over-stock quantity,
+                        // never up past what's left.
+                        max: line.maxQuantity,
+                        removeAtMin: true,
                         onChanged: (q) {
                           Haptics.tap();
                           _run(
@@ -261,57 +423,6 @@ class _CartTile extends ConsumerWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Stepper extends StatelessWidget {
-  const _Stepper({required this.quantity, required this.onChanged});
-
-  final int quantity;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget button(IconData icon, VoidCallback? onTap) => GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 34,
-        height: 34,
-        child: Icon(
-          icon,
-          size: 18,
-          color: onTap == null ? AppColors.line : AppColors.ink,
-        ),
-      ),
-    );
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.fill,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          button(
-            quantity == 1 ? Icons.delete_outline_rounded : Icons.remove_rounded,
-            () => onChanged(quantity - 1),
-          ),
-          SizedBox(
-            width: 22,
-            child: Center(
-              child: Text(
-                '$quantity',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-          button(
-            Icons.add_rounded,
-            quantity >= 99 ? null : () => onChanged(quantity + 1),
-          ),
-        ],
       ),
     );
   }

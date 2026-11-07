@@ -35,7 +35,11 @@ public final class OrderDtos {
             String couponCode,
             String shippingMethod,
             // Cart lines to buy; empty or missing means the whole cart. Unselected lines stay in the cart.
-            List<Long> cartItemIds) {
+            List<Long> cartItemIds,
+            // Client-generated key for this checkout attempt (e.g. a UUID minted once per "place order" tap and
+            // reused on retry). Replaying the same key returns the order already created by the first attempt
+            // instead of creating a duplicate. Optional; omitting it disables the duplicate-submission guard.
+            @Size(max = 64) String idempotencyKey) {
     }
 
     public record OrderItemResponse(Long productId, String name, String image, BigDecimal price, String size,
@@ -55,11 +59,21 @@ public final class OrderDtos {
             BigDecimal total,
             AddressDto address,
             List<OrderItemResponse> items,
-            Long userId,
+            Long userId, // null for a guest order
             Instant createdAt,
             List<OrderStatus> nextStatuses, // statuses an admin may move this order to next
             String cancelReason,
-            String cancelledBy) { // ADMIN or CUSTOMER when cancelled
+            String cancelledBy, // ADMIN or CUSTOMER when cancelled
+            boolean guest,
+            // Only in the response to the guest who placed the order: send it as X-Order-Access to
+            // /api/guest-orders/{id}/... to view the confirmation / finish paying. Null everywhere else.
+            String guestAccessToken) {
+
+        public OrderResponse withGuestAccessToken(String token) {
+            return new OrderResponse(id, status, paymentMethod, paid, itemsAmount, deliveryFee, discount, couponCode,
+                    shippingMethod, total, address, items, userId, createdAt, nextStatuses, cancelReason, cancelledBy,
+                    guest, token);
+        }
     }
 
     /** {@code reason} is required when cancelling; it is emailed to the customer and shown on their order. */

@@ -28,7 +28,7 @@ class ProductServiceUpdateTest {
 
     private ProductForm form(List<String> sizes, boolean bestseller) {
         return new ProductForm("Renamed", "New description", new BigDecimal("355.00"), "Men", "Winterwear",
-                sizes, bestseller, null);
+                sizes, bestseller, null, null, null, null);
     }
 
     @Test

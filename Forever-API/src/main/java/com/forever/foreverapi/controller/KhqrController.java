@@ -1,6 +1,7 @@
 package com.forever.foreverapi.controller;
 
 import com.forever.foreverapi.common.security.AuthUser;
+import com.forever.foreverapi.common.security.ShopperRef;
 import com.forever.foreverapi.model.dto.OrderDtos.PlaceOrderRequest;
 import com.forever.foreverapi.model.dto.PaymentDtos.KhqrCheckout;
 import com.forever.foreverapi.model.dto.PaymentDtos.KhqrPaymentStatus;
@@ -17,8 +18,8 @@ public class KhqrController {
     public KhqrController(KhqrService khqr) { this.khqr = khqr; }
 
     @PostMapping("/checkout")
-    public KhqrCheckout checkout(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody PlaceOrderRequest request) {
-        return khqr.checkout(user.id(), request);
+    public KhqrCheckout checkout(ShopperRef shopper, @Valid @RequestBody PlaceOrderRequest request) {
+        return khqr.checkout(shopper, request);
     }
 
     @PostMapping("/{orderId}/verify")

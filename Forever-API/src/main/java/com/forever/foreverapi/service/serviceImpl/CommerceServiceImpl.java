@@ -35,10 +35,14 @@ public class CommerceServiceImpl implements CommerceService {
     }
 
     public Pricing price(BigDecimal amount, String rawCoupon, String rawShipping, Long userId) {
+        return price(amount, rawCoupon, rawShipping, userId, null);
+    }
+
+    public Pricing price(BigDecimal amount, String rawCoupon, String rawShipping, Long userId, String guestEmail) {
         String shipping = "EXPRESS".equalsIgnoreCase(rawShipping) ? "EXPRESS" : "STANDARD";
         BigDecimal fee = checkoutOptions().shippingMethods().stream().filter(s -> s.code().equals(shipping)).findFirst().orElseThrow().fee();
         String code = rawCoupon == null || rawCoupon.isBlank() ? null : rawCoupon.trim().toUpperCase();
-        BigDecimal discount = code == null ? BigDecimal.ZERO : coupons.discountFor(code, amount, userId);
+        BigDecimal discount = code == null ? BigDecimal.ZERO : coupons.discountFor(code, amount, userId, guestEmail);
         return new Pricing(discount, code, fee, shipping);
     }
 

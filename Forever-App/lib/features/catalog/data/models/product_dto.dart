@@ -18,6 +18,8 @@ abstract class ProductDto with _$ProductDto {
     required List<String> sizes,
     required List<String> images,
     @Default(false) bool bestseller,
+    @Default(<String, int>{}) Map<String, int> stock,
+    @Default(true) bool inStock,
   }) = _ProductDto;
 
   factory ProductDto.fromJson(Map<String, dynamic> json) =>
@@ -35,5 +37,7 @@ extension ProductDtoMapper on ProductDto {
     sizes: sizes,
     images: images,
     bestseller: bestseller,
+    stock: stock,
+    inStock: inStock,
   );
 }

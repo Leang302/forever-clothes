@@ -69,6 +69,13 @@ abstract class OrderDto with _$OrderDto {
     required String createdAt,
     String? cancelReason,
     String? cancelledBy,
+
+    /// Placed by an anonymous guest session (no account; `userId` is null).
+    @Default(false) bool guest,
+
+    /// Only in the response to the guest who placed the order: proves access
+    /// to it via `X-Order-Access`. Kept in memory only, never persisted/logged.
+    String? guestAccessToken,
   }) = _OrderDto;
 
   factory OrderDto.fromJson(Map<String, dynamic> json) =>
@@ -113,5 +120,6 @@ extension OrderDtoMapper on OrderDto {
     createdAt: DateTime.parse(createdAt).toLocal(),
     cancelReason: cancelReason,
     cancelledBy: cancelledBy,
+    guest: guest,
   );
 }
